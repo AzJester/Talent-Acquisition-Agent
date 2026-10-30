@@ -21,6 +21,7 @@ The same page as the claude.ai app, built for a plain website:
 - **Storage:** searches, candidates, reviews, rubrics and the do-not-target list are saved in the browser's local storage, using the same document API as the claude.ai store. Nothing is uploaded to GitHub. Each recruiter's data is their own; share results with Export CSV.
 - **Claude scoring:** a recruiter enters an Anthropic API key under Governance. The key stays in that browser (session only unless "Remember on this computer" is ticked) and is sent only to `api.anthropic.com`. The page calls the Messages API through the official TypeScript SDK (`@anthropic-ai/sdk` 0.135.0, bundled at build time into `site/vendor/anthropic.js`). Each call uses `claude-opus-5-5` with adaptive thinking, server-side refusal fallback (`fallbacks: "default"`) and structured JSON output for scoring. Use API keys with a spending limit.
 - **Without a key:** the app runs on heuristic scores from the signal dictionary.
+- **Light and dark mode:** a toggle in the navigation bar switches themes. It starts from the viewer's system setting and remembers the choice in that browser. Both themes use the Astrion 2026 palette.
 
 ### How it deploys
 
