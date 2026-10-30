@@ -150,7 +150,9 @@ ul.flags li { padding:8px 0; border-bottom:1px solid var(--hair); }
 "use strict";
 const SIGNALS = __SIGNALS_JSON__;
 const TEMPLATES = __TEMPLATES_JSON__;
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
+// "claude" when published as a claude.ai artifact; "github" for the GitHub Pages build (set by standalone/build.py)
+const HOST = window.TAA_HOST === "github" ? "github" : "claude";
 
 // ------------------------------------------------------------------ utilities
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -590,11 +592,20 @@ function scoringPrompt(r, batch) {
 
 ${rubricBlock(r)}
 
-Reply with only a JSON array, one object per candidate, in this exact shape:
-[{"candidate": "<the profile id>", "summary": "<one sentence>", "criteria": [{"criterion_id": "<one of: ${ids}>", "status": "scored" or "unknown", "score": <integer 0 to 4>, "evidence": ["<exact quote>"], "rationale": "<one or two sentences>"}]}]
+Reply with only a JSON object, with one entry per candidate, in this exact shape:
+{"candidates": [{"candidate": "<the profile id>", "summary": "<one sentence>", "criteria": [{"criterion_id": "<one of: ${ids}>", "status": "scored" or "unknown", "score": <integer 0 to 4>, "evidence": ["<exact quote>"], "rationale": "<one or two sentences>"}]}]}
 Include every criterion for every candidate.
 
 ${batch.map((b) => `<profile id="${b.ref}">\n${b.text}\n</profile>`).join("\n\n")}`;
+}
+// Structured-output schema for the GitHub build, where the page calls the Messages API directly
+function scoringSchema(r, refs) {
+  return { type: "object", additionalProperties: false, required: ["candidates"], properties: { candidates: { type: "array", items: {
+    type: "object", additionalProperties: false, required: ["candidate", "summary", "criteria"], properties: {
+      candidate: { type: "string", enum: refs }, summary: { type: "string" },
+      criteria: { type: "array", items: { type: "object", additionalProperties: false, required: ["criterion_id", "status", "score", "evidence", "rationale"],
+        properties: { criterion_id: { type: "string", enum: r.criteria.map((c) => c.id) }, status: { type: "string", enum: ["scored", "unknown"] },
+          score: { type: "integer", enum: [0, 1, 2, 3, 4] }, evidence: { type: "array", items: { type: "string" } }, rationale: { type: "string" } } } } } } } } };
 }
 const INTAKE_RULES = `You turn a hiring request into a draft scoring rubric for Astrion Talent Acquisition. A hiring manager edits and approves the rubric before any search uses it, so make it concrete and easy to correct.
 
@@ -622,6 +633,91 @@ ${text}
 const OUTREACH_RULES = `You draft a first-contact message from an Astrion recruiter to a potential candidate. The recruiter edits and sends it; you do not.
 Rules: under 120 words, plain text, no subject line. Greet with "[First name]" and sign "[Recruiter name]". Reference one or two specific items from the verified evidence. Say what the role is in one sentence, using the role pitch. Do not mention compensation, equity, clearance status, age or any personal characteristic. No flattery, no hype, no exclamation points, no em dashes. American English. End with a low-pressure ask for a short call.`;
 
+// ------------------------------------------------------------------ GitHub Pages host adapters
+// On GitHub Pages there is no claude.ai runtime, so the page keeps its data in this browser
+// (same document API the claude.ai store offers) and calls Claude with the viewer's own API key.
+function localDb() {
+  const PREFIX = "taa:doc:"; const listeners = new Set();
+  const notify = () => setTimeout(() => { for (const l of [...listeners]) l(); }, 0);
+  const read = (p) => { try { const v = localStorage.getItem(PREFIX + p); return v ? JSON.parse(v) : undefined; } catch { return undefined; } };
+  const write = (p, d) => {
+    try { if (d === undefined) localStorage.removeItem(PREFIX + p); else localStorage.setItem(PREFIX + p, JSON.stringify(d)); }
+    catch (e) { throw { code: e && e.name === "QuotaExceededError" ? "quota_exceeded" : "unavailable", message: String(e) }; }
+    notify();
+  };
+  const keys = () => { const out = []; try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.startsWith(PREFIX)) out.push(k.slice(PREFIX.length)); } } catch {} return out; };
+  window.addEventListener("storage", (e) => { if (!e.key || e.key.startsWith(PREFIX)) notify(); });
+  const merge = (a, b) => { const o = { ...a }; for (const [k, v] of Object.entries(b))
+    o[k] = v && typeof v === "object" && !Array.isArray(v) && a[k] && typeof a[k] === "object" && !Array.isArray(a[k]) ? merge(a[k], v) : v; return o; };
+  const snapDoc = (p) => { const d = read(p); return { id: p.split("/").pop(), exists: d !== undefined, data: () => (d === undefined ? undefined : clone(d)), metadata: { fromCache: false, hasPendingWrites: false } }; };
+  const docRef = (p) => ({ id: p.split("/").pop(), path: p, get: async () => snapDoc(p),
+    set: async (d) => write(p, clone(d)),
+    update: async (d) => { const cur = read(p); if (cur === undefined) throw { code: "invalid_argument", message: "document does not exist" }; write(p, merge(cur, clone(d))); },
+    delete: async () => write(p, undefined),
+    onSnapshot: (next) => { const l = () => next(snapDoc(p)); listeners.add(l); setTimeout(l, 0); return () => listeners.delete(l); },
+    collection: (c) => collRef(p + "/" + c) });
+  const collRef = (p, o = {}) => {
+    const depth = p.split("/").length + 1;
+    const snap = () => {
+      let docs = keys().filter((k) => k.startsWith(p + "/") && k.split("/").length === depth).map(snapDoc);
+      if (o.order) { const [f, dir] = o.order; docs.sort((a, b) => { const x = a.data()[f], y = b.data()[f]; return (x < y ? -1 : x > y ? 1 : 0) * (dir === "desc" ? -1 : 1); }); }
+      if (o.limit) docs = docs.slice(0, o.limit);
+      return { docs, size: docs.length, empty: !docs.length, docChanges: () => [], metadata: { fromCache: false, hasPendingWrites: false } };
+    };
+    return { path: p, doc: (id) => docRef(p + "/" + (id || newId())), add: async (d) => { const r = docRef(p + "/" + newId()); await r.set(d); return r; },
+      orderBy: (f, dir = "asc") => collRef(p, { ...o, order: [f, dir] }), limit: (n) => collRef(p, { ...o, limit: n }), where: () => collRef(p, o),
+      get: async () => snap(), onSnapshot: (next) => { const l = () => next(snap()); listeners.add(l); setTimeout(l, 0); return () => listeners.delete(l); } };
+  };
+  return { doc: docRef, collection: (p) => collRef(p) };
+}
+const localUser = { me: async () => ({ id: "local", name: "This browser", isOwner: true, canEdit: true }), can: async () => true, canEdit: async () => true,
+  isOwner: async () => true, id: async () => "local", profiles: async (ids) => Object.fromEntries(ids.map((i) => [i, { id: i, name: "This browser" }])) };
+const localDownloads = { save: async ({ filename, data }) => {
+  const url = URL.createObjectURL(new Blob([data], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000); return { status: "saved" };
+} };
+const KEY_NAME = "taa:anthropic_key";
+function storedKey() { try { return sessionStorage.getItem(KEY_NAME) || localStorage.getItem(KEY_NAME) || ""; } catch { return ""; } }
+function storeKey(key, remember) {
+  try { sessionStorage.removeItem(KEY_NAME); localStorage.removeItem(KEY_NAME); if (key) (remember ? localStorage : sessionStorage).setItem(KEY_NAME, key); } catch {}
+}
+let sdkCache = null;
+async function claudeCall(prompt, { effort, jsonSchema, signal, maxTokens = 16000 }) {
+  if (!sdkCache || sdkCache.key !== storedKey()) {
+    const { default: Anthropic } = await import("./vendor/anthropic.js");
+    sdkCache = { key: storedKey(), Anthropic, client: new Anthropic({ apiKey: storedKey(), dangerouslyAllowBrowser: true, maxRetries: 3 }) };
+  }
+  const { Anthropic, client } = sdkCache;
+  const output_config = { effort }; if (jsonSchema) output_config.format = { type: "json_schema", schema: jsonSchema };
+  let resp;
+  try {
+    resp = await client.beta.messages.create({ model: "claude-opus-5-5", max_tokens: maxTokens, thinking: { type: "adaptive" }, output_config,
+      betas: ["server-side-fallback-2026-07-01"], fallbacks: "default", messages: [{ role: "user", content: prompt }] }, { signal });
+  } catch (e) {
+    if (e instanceof Anthropic.APIUserAbortError) throw { code: "cancelled" };
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw { code: "not_granted", message: "The Anthropic API key was rejected." };
+    if (e instanceof Anthropic.RateLimitError) throw { code: "rate_limited", message: e.message };
+    if (e instanceof Anthropic.BadRequestError) throw { code: "invalid_request", message: e.message };
+    throw { code: "upstream_error", message: (e && e.message) || "Connection failed" };
+  }
+  if (resp.stop_reason === "refusal") throw { code: "refused" };
+  if (resp.stop_reason === "max_tokens") throw { code: "invalid_json", message: "The reply was cut short" };
+  return resp.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+}
+function parseJsonLoose(text) {
+  try { return JSON.parse(text); } catch {}
+  const s = text.search(/[[{]/), e = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+  if (s >= 0 && e > s) { try { return JSON.parse(text.slice(s, e + 1)); } catch {} }
+  throw { code: "invalid_json", message: "Claude's reply was not valid JSON", text };
+}
+function localSample() {
+  if (!storedKey()) return null;
+  const s = async (input, opts = {}) => ({ text: (await claudeCall(input, { effort: "medium", signal: opts.signal })).trim(), truncated: false });
+  s.json = async (input, opts = {}) => parseJsonLoose(await claudeCall(input, { effort: opts.modelTier === "complex" ? "xhigh" : "high", jsonSchema: opts.jsonSchema, signal: opts.signal }));
+  return s;
+}
+
 // ------------------------------------------------------------------ app state and platform
 const app = { db: null, user: null, sample: null, downloads: null, me: null, canWrite: null, isAdmin: false, ready: false,
   rubrics: [], searches: [], dnt: { employers: [] }, cands: new Map(), candSub: null, candSearch: null, scoring: null, flash: null };
@@ -646,8 +742,9 @@ function say(kind, text) { app.flash = { kind, text }; render(); }
 async function init() {
   render();
   const use = (n) => (window.claude && typeof window.claude.use === "function" ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
-  const [db, user, sample, downloads] = await Promise.all([use("db"), use("user"), use("sample"), use("downloads")]);
-  Object.assign(app, { db, user, sample, downloads });
+  if (HOST === "github") Object.assign(app, { db: localDb(), user: localUser, sample: localSample(), downloads: localDownloads });
+  else { const [db, user, sample, downloads] = await Promise.all([use("db"), use("user"), use("sample"), use("downloads")]); Object.assign(app, { db, user, sample, downloads }); }
+  const db = app.db, user = app.user;
   if (user) {
     try { app.me = await user.me(); } catch { app.me = null; }
     try { app.canWrite = await user.can("data.write"); } catch { app.canWrite = null; }
@@ -685,7 +782,7 @@ function render(fromData) {
   const section = /^rubric/.test(route) ? "rubrics" : route === "governance" ? "governance" : "searches";
   document.querySelectorAll("[data-nav]").forEach((a) => { if (a.dataset.nav === section) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   const who = document.getElementById("who");
-  who.textContent = !app.ready ? "Connecting" : app.me && app.me.name ? `${app.me.name} / ${app.isAdmin ? "editor" : app.canWrite === false ? "view only" : "contributor"}` : "Signed out";
+  who.textContent = !app.ready ? "Connecting" : HOST === "github" ? `This browser / ${app.sample ? "Claude on" : "heuristic only"}` : app.me && app.me.name ? `${app.me.name} / ${app.isAdmin ? "editor" : app.canWrite === false ? "view only" : "contributor"}` : "Signed out";
   let html = "";
   if (app.flash) html += `<div class="notice"><b>${esc(app.flash.kind)}</b>${esc(app.flash.text)} <button class="btn btn-quiet" data-act="dismiss" style="min-height:28px;margin-left:8px">Dismiss</button></div>`;
   if (!app.ready) html += `<p class="muted">Connecting to shared storage</p>`;
@@ -718,7 +815,8 @@ function searchesView() {
     <p class="lede">Score candidates from licensed exports against an approved rubric. Every score quotes the profile, and every quote is checked.</p></div>
     ${approved.length ? `<a class="btn btn-primary" href="#new-search">New search</a>` : `<a class="btn btn-primary" href="#rubrics">Approve a rubric first</a>`}</div>`;
   h += viewOnlyNotice();
-  if (!app.sample) h += `<div class="notice quiet"><b>Heuristic mode</b>Claude scoring is unavailable in this view, so scores come from the signal dictionary only.</div>`;
+  if (HOST === "github") h += `<div class="notice quiet"><b>GitHub version</b>Searches, reviews and settings are saved in this browser only. Nothing you upload goes to GitHub. Share results with Export CSV.${app.sample ? "" : ` Claude scoring is off until you add an Anthropic API key under <a href="#governance">Governance</a>.`}</div>`;
+  else if (!app.sample) h += `<div class="notice quiet"><b>Heuristic mode</b>Claude scoring is unavailable in this view, so scores come from the signal dictionary only.</div>`;
   if (!app.searches.length) return h + `<div class="panel"><h3>No searches yet</h3><p class="muted">Approve a rubric, export candidates from LinkedIn Recruiter, ClearanceJobs or the ATS as CSV, then start a search.</p></div>`;
   h += `<div class="table-wrap"><table><thead><tr><th>Search</th><th>Rubric</th><th>Status</th><th class="num">Candidates</th><th class="num">Excluded</th><th class="num">Approved</th><th>Scorer</th><th>Created</th></tr></thead><tbody>`;
   for (const s of app.searches) {
@@ -817,11 +915,11 @@ function searchView(sid) {
   </div>`;
   if (removed) h += `<div class="notice"><b>Evidence check</b>${removed} Claude quotes were not found in the source profiles and were removed. Those criteria show as unknown.</div>`;
   h += `<div class="panel" style="margin-bottom:24px"><h3>Claude scoring</h3>`;
-  if (!app.sample) h += `<p class="muted">Claude is not available in this view. Heuristic scores are shown.</p>`;
+  if (!app.sample) h += `<p class="muted">${HOST === "github" ? `Add an Anthropic API key under <a href="#governance">Governance</a> to score with Claude.` : "Claude is not available in this view."} Heuristic scores are shown.</p>`;
   else if (sc) h += `<p>${esc(sc.msg)}</p><div class="progress"><div style="width:${sc.total ? (100 * sc.done) / sc.total : 0}%"></div></div><button class="btn" data-act="stop">Stop</button>`;
   else {
     const unscored = list.filter((c) => c.card.scorer === "heuristic").length;
-    h += `<p class="caption">Sends masked profiles (no names, contact details, location or schools) to Claude on your own Claude account, five at a time. ${unscored} candidates still have heuristic scores only.</p>
+    h += `<p class="caption">Sends masked profiles (no names, contact details, location or schools) to Claude ${HOST === "github" ? "with the API key saved in this browser" : "on your own Claude account"}, five at a time. ${unscored} candidates still have heuristic scores only.</p>
       <div class="row"><label for="sc_n" style="margin:0">Top</label><input type="number" id="sc_n" min="1" max="200" value="${Math.min(Math.max(unscored, 1), 50)}" style="width:90px">
       <label for="sc_tier" style="margin:0">Depth</label><select id="sc_tier" style="width:auto"><option value="default">Standard</option><option value="complex">Thorough (slower)</option></select>
       <button class="btn" data-act="score" data-sid="${esc(sid)}" data-mode="unscored">Score with Claude</button>
@@ -861,7 +959,9 @@ async function scoreSearch(sid, mode) {
   for (let i = 0; i < targets.length && !ctl.signal.aborted; i += 5) {
     const batch = targets.slice(i, i + 5).map((c, j) => ({ c, ref: "p" + (j + 1), mp: maskedView(c.profile) }));
     try {
-      const res = await app.sample.json(scoringPrompt(r, batch.map((b) => ({ ref: b.ref, text: b.mp.text }))), { modelTier: tier, signal: ctl.signal });
+      const opts = { modelTier: tier, signal: ctl.signal };
+      if (HOST === "github") opts.jsonSchema = scoringSchema(r, batch.map((b) => b.ref));
+      const res = await app.sample.json(scoringPrompt(r, batch.map((b) => ({ ref: b.ref, text: b.mp.text }))), opts);
       const arr = Array.isArray(res) ? res : Array.isArray(res?.candidates) ? res.candidates : [];
       for (const b of batch) {
         const item = arr.find((x) => x && String(x.candidate) === b.ref);
@@ -1006,7 +1106,7 @@ function rubricsView() {
     <section class="panel"><h3>Start from a template</h3>${TEMPLATES.map((t, i) => `<p><b>${esc(t.title)}</b><br><span class="caption">${esc(t.summary)}</span></p><button class="btn btn-primary" data-act="addTemplate" data-i="${i}">Add as draft</button>`).join("")}</section>
     <section class="panel"><h3>Draft from a hiring request</h3><p class="caption">Paste the requisition. Claude drafts criteria, weights and guidance; you edit and a hiring manager approves.</p>
       <div class="field"><label for="in_text">Hiring request</label><textarea id="in_text" placeholder="Example: SW Factory Lead. Commercial and defense software product leadership (Anduril Lattice, Applied Intuition, Shield AI Hivemind or similar). Large software team leadership. Product management across multiple programs and services."></textarea></div>
-      <button class="btn" data-act="intake" ${app.sample ? "" : "disabled"}>Draft rubric</button> <span class="caption" id="in_status">${app.sample ? "" : "Needs Claude in this view."}</span></section>
+      <button class="btn" data-act="intake" ${app.sample ? "" : "disabled"}>Draft rubric</button> <span class="caption" id="in_status">${app.sample ? "" : (HOST === "github" ? "Needs an Anthropic API key (Governance)." : "Needs Claude in this view.")}</span></section>
     <section class="panel"><h3>Paste YAML</h3><p class="caption">Same format as the template. Open the template draft to see it.</p>
       <div class="field"><label for="yaml_new">Rubric YAML</label><textarea id="yaml_new" class="code" style="min-height:160px"></textarea></div>
       <button class="btn" data-act="pasteYaml">Save draft</button> <span class="caption" id="py_status"></span></section></div>`;
@@ -1049,9 +1149,17 @@ function governanceView() {
   const dntYaml = jsyaml.dump({ employers: app.dnt.employers || [] }, { lineWidth: 100 });
   return `<p class="label">Governance</p><h1>Controls and audit</h1>
   <p class="lede">Who can see what, the do-not-target list, retention and the audit log.</p>
-  <div class="grid"><section class="panel"><h3>Access</h3>
+  <div class="grid">${HOST === "github" ? `<section class="panel"><h3>Where data lives</h3>
+    <p>This is the GitHub version. Searches, candidates, reviews, rubrics and the do-not-target list are saved in this browser only. Nothing is uploaded to GitHub, and other people do not see your data.</p>
+    <p class="caption">Clearing this browser's site data deletes it. Share results with Export CSV. For shared team data, use the claude.ai version of the app.</p></section>
+  <section class="panel"><h3>Claude access</h3>
+    <p class="caption">Claude scoring, rubric drafting and outreach drafts need an Anthropic API key. The key stays in this browser and is sent only to api.anthropic.com. Anyone who can use this browser profile can use it, so use a key with a spending limit.</p>
+    <div class="field"><label for="api_key">Anthropic API key</label><input type="password" id="api_key" autocomplete="off" placeholder="${storedKey() ? "Saved. Enter a new key to replace it." : "sk-ant-..."}"></div>
+    <div class="field"><label class="mono" style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font:400 14px var(--font-sans);color:var(--ink)"><input type="checkbox" id="api_remember"> Remember on this computer (otherwise cleared when the tab closes)</label></div>
+    <div class="row"><button class="btn" data-act="saveKey">Save key</button>${storedKey() ? `<button class="btn btn-quiet" data-act="clearKey">Remove key</button>` : ""}<span class="caption" id="key_status">${storedKey() ? "A key is saved." : "No key saved."}</span></div></section>` :
+  `<section class="panel"><h3>Access</h3>
     <p>Candidate data is readable only at Contributor level or above. People who open a public link from outside Astrion's Claude organization see no data.</p>
-    <p class="caption">Owner and Editors change the do-not-target list and delete searches. Contributors run searches and review candidates.</p></section>
+    <p class="caption">Owner and Editors change the do-not-target list and delete searches. Contributors run searches and review candidates.</p></section>`}
   <section class="panel"><h3>Do-not-target list</h3><p class="caption">Owned by Contracts: non-solicitation terms from teaming agreements, subcontracts and NDAs. Candidates whose current employer matches are excluded before scoring.</p>
     <div class="field"><label for="dnt_yaml">Employers (YAML)</label><textarea id="dnt_yaml" class="code" style="min-height:200px" ${app.isAdmin ? "" : "readonly"}>${esc(dntYaml)}</textarea>
     <p class="hint">Each entry: name, aliases, reason, lookback_months. ${app.isAdmin ? "" : "Only Editors and the owner can change this list."}</p></div>
@@ -1140,6 +1248,14 @@ document.addEventListener("click", async (ev) => {
     try { await app.db.doc(`rubrics/${t.dataset.id}`).update({ status: "approved", approvedBy: who.slice(0, 120), approvedById: app.me?.id || null, approvedAt: nowIso() });
       const row = app.rubrics.find((x) => x.id === t.dataset.id); await audit("rubric.approved", null, { rubric: row?.slug, version: row?.version, approver: who }); }
     catch (e) { st.textContent = "Not approved (" + (e.code || e.message) + ")."; } return;
+  }
+  if (act === "saveKey" || act === "clearKey") {
+    const v = act === "clearKey" ? "" : document.getElementById("api_key").value.trim();
+    if (act === "saveKey" && !v) { document.getElementById("key_status").textContent = "Enter a key first."; return; }
+    storeKey(v, act === "saveKey" && document.getElementById("api_remember").checked);
+    app.sample = localSample(); sdkCache = null;
+    say("Claude access", v ? "Key saved in this browser. Claude scoring is on." : "Key removed. Claude scoring is off.");
+    return;
   }
   if (act === "saveDnt") {
     const st = document.getElementById("dnt_status");

@@ -1,7 +1,12 @@
-"""Build the standalone claude.ai app from standalone/app.html and the repo's config.
+"""Build the standalone app from standalone/app.html and the repo's config.
 
 The signal dictionary (config/signals) and rubric templates (config/rubrics) are embedded so
-the standalone app and the Python app score from the same source. Output: standalone/dist/talent-agent.html
+the standalone app and the Python app score from the same source. Two outputs:
+
+- standalone/dist/talent-agent.html  the claude.ai artifact (page content; claude.ai adds the document skeleton)
+- site/index.html                    the GitHub Pages build (full document; data in the browser, Claude via the
+                                     viewer's own API key and the SDK bundle at site/vendor/anthropic.js, built by
+                                     `npm run bundle` in standalone/vendor)
 
     python standalone/build.py
 """
@@ -49,6 +54,17 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(f"wrote {out.relative_to(ROOT)} ({len(html):,} bytes, {len(signals['capabilities'])} capabilities, {len(templates)} templates)")
+
+    # GitHub Pages: a full document whose head carries what the artifact skeleton would add
+    cut = html.index("</style>") + len("</style>")
+    page = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+            '<script>window.TAA_HOST = "github";</script>\n' + html[:cut] + "\n</head>\n<body>\n" + html[cut:] + "\n</body>\n</html>\n")
+    site = ROOT / "site"
+    (site / "vendor").mkdir(parents=True, exist_ok=True)
+    (site / "index.html").write_text(page, encoding="utf-8")
+    (site / ".nojekyll").write_text("", encoding="utf-8")
+    print(f"wrote site/index.html ({len(page):,} bytes); run `npm run bundle` in standalone/vendor for site/vendor/anthropic.js")
 
 
 if __name__ == "__main__":
