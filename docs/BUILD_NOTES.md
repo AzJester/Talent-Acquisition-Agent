@@ -2,7 +2,41 @@
 
 How the Talent Acquisition Agent is deployed, how to change it, and the self-hosted path for later.
 
-## Current deployment: standalone app on claude.ai
+## Deployments at a glance
+
+| Version | Address | Data lives | Claude scoring | Best for |
+|---|---|---|---|---|
+| GitHub Pages | https://azjester.github.io/Talent-Acquisition-Agent/ | In each recruiter's own browser | Recruiter's own Anthropic API key, entered under Governance | Running from the GitHub site; individual use |
+| claude.ai app | https://claude.ai/artifact/CeR86Htyv2kzoCjuo5FpYE | Shared app storage on claude.ai | Each viewer's Claude account | Shared team searches and reviews |
+| Self-hosted Python app | Not deployed | Astrion's database | Anthropic API or Amazon Bedrock | Astrion infrastructure, SSO, People Data Labs |
+
+All three score from the same signal dictionary and rubric templates in `config/`. The legal and sourcing rules for every version are in `docs/Legal_and_Sourcing_Guide.docx`.
+
+## GitHub Pages version
+
+**Address:** https://azjester.github.io/Talent-Acquisition-Agent/
+
+The same page as the claude.ai app, built for a plain website:
+
+- **Storage:** searches, candidates, reviews, rubrics and the do-not-target list are saved in the browser's local storage, using the same document API as the claude.ai store. Nothing is uploaded to GitHub. Each recruiter's data is their own; share results with Export CSV.
+- **Claude scoring:** a recruiter enters an Anthropic API key under Governance. The key stays in that browser (session only unless "Remember on this computer" is ticked) and is sent only to `api.anthropic.com`. The page calls the Messages API through the official TypeScript SDK (`@anthropic-ai/sdk` 0.135.0, bundled at build time into `site/vendor/anthropic.js`). Each call uses `claude-opus-5-5` with adaptive thinking, server-side refusal fallback (`fallbacks: "default"`) and structured JSON output for scoring. Use API keys with a spending limit.
+- **Without a key:** the app runs on heuristic scores from the signal dictionary.
+
+### How it deploys
+
+`.github/workflows/pages.yml` runs on every push to `main` and on manual dispatch. It:
+
+1. builds `site/index.html` with `python standalone/build.py`;
+2. bundles the SDK with `npm ci && npm run bundle` in `standalone/vendor`;
+3. publishes `site/` with GitHub's Pages actions.
+
+`.github/workflows/ci.yml` runs the test suite on every pull request and push to `main`.
+
+**One-time setup:** in the repository on GitHub, open Settings, then Pages, and under "Build and deployment" set Source to **GitHub Actions**. Until that is done the deploy job fails at the Pages step. After it is set, re-run the latest "Deploy app to GitHub Pages" workflow from the Actions tab, or merge any change.
+
+The repository is public, so the app's code and configuration are public. Candidate data never enters the repository. Keep it that way: do not commit candidate files or real do-not-target entries.
+
+## claude.ai version
 
 **Team link:** https://claude.ai/artifact/CeR86Htyv2kzoCjuo5FpYE
 

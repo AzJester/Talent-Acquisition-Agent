@@ -8,3 +8,5 @@ dist/
 .env
 data/*.db
 data/*.db-*
+site/
+standalone/vendor/node_modules/

@@ -1,0 +1,14 @@
+{
+  "name": "taa-standalone-vendor",
+  "private": true,
+  "description": "Bundles the Anthropic TypeScript SDK for the GitHub Pages build of the standalone app",
+  "scripts": {
+    "bundle": "esbuild entry.js --bundle --format=esm --minify --target=es2020 --outfile=../../site/vendor/anthropic.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.135.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
