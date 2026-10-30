@@ -2,7 +2,14 @@
 
 AI-assisted sourcing and ranking tool for Astrion Talent Acquisition. It takes an approved hiring rubric and candidate records from licensed sources, scores every candidate on every criterion with quoted evidence, verifies each quote against the source, and gives recruiters a ranked slate to review. Recruiters make every contact decision; the tool never contacts anyone.
 
-The build plan is in [docs/PLAN.md](docs/PLAN.md) (Word version: `docs/Talent_Acquisition_Agent_Build_Plan.docx`). The one-page pilot brief for HR leadership is [docs/pilot-brief.html](docs/pilot-brief.html). This repository is the Phase 1 MVP from that plan.
+**Team app:** https://claude.ai/artifact/CeR86Htyv2kzoCjuo5FpYE (standalone, hosted on claude.ai; sign in with a Claude account that has Contributor access). How it is deployed, who can see what, how to change it, and the AWS self-hosting path are in [docs/BUILD_NOTES.md](docs/BUILD_NOTES.md).
+
+The repository holds two versions of the same tool:
+
+- `standalone/`: the claude.ai app the team uses. Build it with `python standalone/build.py`.
+- `src/taa/`: the self-hosted Python app (FastAPI), for when Astrion runs it on its own infrastructure.
+
+Background: the build plan is in [docs/PLAN.md](docs/PLAN.md) (Word version: `docs/Talent_Acquisition_Agent_Build_Plan.docx`). `docs/pilot-brief.html` is superseded; Astrion chose direct deployment over a pilot.
 
 ## What it does
 
