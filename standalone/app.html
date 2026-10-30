@@ -127,6 +127,7 @@ td.note { font-size:8pt; color:var(--muted); }
 .crit .meta { font:400 11px/1.4 var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-top:4px; }
 blockquote { margin:0 0 8px; padding:8px 12px; border-left:2px solid var(--ink); background:var(--quote); font-size:14.5px; }
 ul.flags { list-style:none; margin:0 0 16px; padding:0; }
+main ol, main ul:not(.flags) { margin:0 0 14px; padding-left:22px; display:grid; gap:6px; max-width:80ch; }
 ul.flags li { padding:8px 0; border-bottom:1px solid var(--hair); }
 .progress { height:4px; background:var(--hair); margin:8px 0 4px; }
 .progress div { height:4px; background:var(--ink); width:0; }
@@ -150,6 +151,7 @@ try { const t = localStorage.getItem("taa:theme"); if (t === "light" || t === "d
       <a href="#searches" data-nav="searches">Searches</a>
       <a href="#rubrics" data-nav="rubrics">Rubrics</a>
       <a href="#governance" data-nav="governance">Governance</a>
+      <a href="#help" data-nav="help">Help</a>
     </nav>
     <div class="nav-end">
       <div class="who" id="who">Connecting</div>
@@ -792,13 +794,14 @@ function render(fromData) {
   // Data updates re-render live views; form views keep what the viewer typed
   const kept = route === lastRoute ? keepForm() : {};
   if (fromData && /^(new-search|governance)$/.test(route) && route === lastRoute && document.activeElement && view.contains(document.activeElement)) return;
-  const section = /^rubric/.test(route) ? "rubrics" : route === "governance" ? "governance" : "searches";
+  const section = /^rubric/.test(route) ? "rubrics" : route === "governance" || route === "help" ? route : "searches";
   document.querySelectorAll("[data-nav]").forEach((a) => { if (a.dataset.nav === section) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   const who = document.getElementById("who");
   who.textContent = !app.ready ? "Connecting" : HOST === "github" ? `This browser / ${app.sample ? "Claude on" : "heuristic only"}` : app.me && app.me.name ? `${app.me.name} / ${app.isAdmin ? "editor" : app.canWrite === false ? "view only" : "contributor"}` : "Signed out";
   let html = "";
   if (app.flash) html += `<div class="notice"><b>${esc(app.flash.kind)}</b>${esc(app.flash.text)} <button class="btn btn-quiet" data-act="dismiss" style="min-height:28px;margin-left:8px">Dismiss</button></div>`;
   if (!app.ready) html += `<p class="muted">Connecting to shared storage</p>`;
+  else if (route === "help") html += helpView();
   else if (!app.db) html += accessPanel();
   else if (route.startsWith("search-")) html += searchView(route.slice(7));
   else if (route.startsWith("cand-")) { const [sid, cid] = route.slice(5).split("-"); html += candView(sid, cid); }
@@ -806,6 +809,7 @@ function render(fromData) {
   else if (route === "rubrics") html += rubricsView();
   else if (route.startsWith("rubric-")) html += rubricView(route.slice(7));
   else if (route === "governance") html += governanceView();
+  else if (route === "help") html += helpView();
   else html += searchesView();
   view.innerHTML = html;
   if (route === lastRoute) restoreForm(kept);
@@ -814,11 +818,11 @@ function render(fromData) {
 }
 function accessPanel() {
   return `<p class="label">Access</p><h1>Sign in to use this app</h1>
-  <p class="lede">Candidate data is visible only to people the owner has given Contributor access, or Astrion members of the owner's Claude organization. Open this link signed in to claude.ai with that access.</p>
-  <p class="caption">If you are signed in and still see this, ask the owner to share the app with you as a Contributor.</p>`;
+  <p class="lede">This version of the app keeps its data on claude.ai. Open the link while signed in to claude.ai.</p>
+  <p class="caption">If you are signed in and still see this, ask the owner to share the app with you.</p>`;
 }
 function viewOnlyNotice() {
-  return app.canWrite === false ? `<div class="notice quiet"><b>View only</b>You can open the app but not see or change candidate data. Ask the owner for Contributor access.</div>` : "";
+  return app.canWrite === false ? `<div class="notice quiet"><b>View only</b>You can read everything here but not change it. Ask the owner for Contributor access to run searches and reviews.</div>` : "";
 }
 
 // ---- searches list
@@ -1171,16 +1175,16 @@ function governanceView() {
     <div class="field"><label class="mono" style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font:400 14px var(--font-sans);color:var(--ink)"><input type="checkbox" id="api_remember"> Remember on this computer (otherwise cleared when the tab closes)</label></div>
     <div class="row"><button class="btn" data-act="saveKey">Save key</button>${storedKey() ? `<button class="btn btn-quiet" data-act="clearKey">Remove key</button>` : ""}<span class="caption" id="key_status">${storedKey() ? "A key is saved." : "No key saved."}</span></div></section>` :
   `<section class="panel"><h3>Access</h3>
-    <p>Candidate data is readable only at Contributor level or above. People who open a public link from outside Astrion's Claude organization see no data.</p>
-    <p class="caption">Owner and Editors change the do-not-target list and delete searches. Contributors run searches and review candidates.</p></section>`}
+    <p>Open access. Anyone who can open this app can read its searches, candidates and reviews.</p>
+    <p class="caption">Changing data (running searches, reviewing, editing lists) needs Contributor access or above. Astrion members of the owner's Claude organization get it through a shared link; claude.ai lets visitors from outside the organization read but never change data.</p></section>`}
   <section class="panel"><h3>Do-not-target list</h3><p class="caption">Owned by Contracts: non-solicitation terms from teaming agreements, subcontracts and NDAs. Candidates whose current employer matches are excluded before scoring.</p>
-    <div class="field"><label for="dnt_yaml">Employers (YAML)</label><textarea id="dnt_yaml" class="code" style="min-height:200px" ${app.isAdmin ? "" : "readonly"}>${esc(dntYaml)}</textarea>
-    <p class="hint">Each entry: name, aliases, reason, lookback_months. ${app.isAdmin ? "" : "Only Editors and the owner can change this list."}</p></div>
-    ${app.isAdmin ? `<button class="btn" data-act="saveDnt">Save list</button> <span class="caption" id="dnt_status"></span>` : ""}</section></div>
+    <div class="field"><label for="dnt_yaml">Employers (YAML)</label><textarea id="dnt_yaml" class="code" style="min-height:200px" ${app.canWrite === false ? "readonly" : ""}>${esc(dntYaml)}</textarea>
+    <p class="hint">Each entry: name, aliases, reason, lookback_months. ${app.canWrite === false ? "You have view-only access, so you cannot change this list." : ""}</p></div>
+    ${app.canWrite !== false ? `<button class="btn" data-act="saveDnt">Save list</button> <span class="caption" id="dnt_status"></span>` : ""}</section></div>
   <h2>Retention</h2><p>Delete searches you no longer need, including their candidate records. Storage holds about 25,000 records in total.</p>
   <div class="table-wrap"><table><thead><tr><th>Search</th><th>Created</th><th class="num">Records</th><th></th></tr></thead><tbody>
   ${app.searches.map((s) => `<tr><td>${esc(s.title)}</td><td class="mono">${esc(fmtDate(s.createdAt))}</td><td class="num">${esc((s.stats?.kept || 0) + (s.stats?.excluded || 0))}</td>
-    <td>${app.isAdmin ? `<button class="btn btn-quiet" data-act="delSearch" data-sid="${esc(s.id)}" style="min-height:28px">Delete</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No searches.</td></tr>`}
+    <td>${app.canWrite !== false ? `<button class="btn btn-quiet" data-act="delSearch" data-sid="${esc(s.id)}" style="min-height:28px">Delete</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No searches.</td></tr>`}
   </tbody></table></div>
   <h2>Audit log</h2><div id="auditBox"><p class="muted">Loading</p></div>`;
 }
@@ -1193,6 +1197,115 @@ async function loadAudit() {
       ${rows.map((x) => `<tr><td class="mono">${esc(fmtDate(x.ts))}</td><td>${esc(nm[x.by] || "Someone")}</td><td class="mono">${esc(x.action)}</td><td class="mono" style="font-size:8pt">${esc(JSON.stringify(x.detail || {}))}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No events yet.</td></tr>`}
       </tbody></table></div>`;
   } catch (e) { box.innerHTML = `<p class="muted">The audit log is not available (${esc(e.code || "error")}).</p>`; }
+}
+
+// ---- help
+function helpView() {
+  const gh = HOST === "github";
+  const setup = gh ? `
+    <li><b>Open the app.</b> Use the GitHub address your team shares. Everything you do is saved in this browser on this computer. Use the same browser each time.</li>
+    <li><b>Optional: turn on Claude scoring.</b> Under <a href="#governance">Governance</a>, paste an Anthropic API key and select Save key. Get a key at console.anthropic.com (API Keys) and set a monthly spending limit there. Tick "Remember on this computer" to keep it after the tab closes. Without a key the app still works, using signal-dictionary scores.</li>` : `
+    <li><b>Open the app signed in to claude.ai.</b> Searches and reviews are shared with everyone who has the link and access.</li>
+    <li><b>Allow Claude when asked.</b> The first time you score, draft a rubric or draft outreach, claude.ai asks you to allow the app to use Claude. Scoring uses your own Claude usage.</li>`;
+  return `<p class="label">Help</p><h1>How to use the Talent Acquisition Agent</h1>
+  <p class="lede">The app ranks candidates against a hiring rubric. You bring candidate lists exported from licensed tools; the app scores each person on each criterion, quotes the profile behind every score, and gives you a ranked slate to review.</p>
+  <div class="notice quiet"><b>Ground rules</b>Use only data from licensed tools you export yourself, or Astrion's own records. Never scrape LinkedIn, Indeed or other sites. You decide who to contact; the app never contacts anyone.</div>
+
+  <h2>Before you start</h2>
+  <ol>${setup}
+    <li><b>Pick light or dark mode</b> with the button at the top right. The app remembers your choice.</li>
+  </ol>
+
+  <h2>1. Set up a rubric</h2>
+  <p>A rubric lists what you are looking for (criteria), how much each counts (weight), and what a 0 to 4 score looks like for each (guidance).</p>
+  <ol>
+    <li>Open <a href="#rubrics">Rubrics</a>.</li>
+    <li>Choose one way to start: <b>Add as draft</b> on the Software Factory Lead template, <b>Draft rubric</b> from a pasted hiring request (needs Claude), or <b>Paste YAML</b>.</li>
+    <li>Open the draft. Check the criteria table. To change a criterion, weight or guidance, edit the YAML and select Save.</li>
+    <li>Have the hiring manager review it, type their name under Hiring manager approval, and select <b>Approve rubric</b>.</li>
+  </ol>
+  <p class="caption">Approved versions are locked. Editing an approved rubric saves a new version that needs its own approval. Requirements are must-haves; desirements are nice-to-haves. Weights work best when they add up to 100.</p>
+
+  <h2>2. Find candidates in licensed tools</h2>
+  <ol>
+    <li>Open <a href="#new-search">New search</a> (or an approved rubric). Copy the <b>Boolean keywords</b>, <b>Company filter</b> and <b>Title filter</b>.</li>
+    <li>Paste them into LinkedIn Recruiter or ClearanceJobs and run the search under your own seat.</li>
+    <li>Export the results as a CSV file, or export from the ATS. JSON files from People Data Labs also work.</li>
+  </ol>
+  <div class="table-wrap"><table><thead><tr><th>CSV column (any of these names)</th><th>Used for</th></tr></thead><tbody>
+    <tr><td>Name, or First Name and Last Name</td><td>Candidate name (shown to you, hidden from the scorer)</td></tr>
+    <tr><td>Title, Current Title, Job Title</td><td>Current role</td></tr>
+    <tr><td>Company, Current Company, Employer</td><td>Current employer</td></tr>
+    <tr><td>Headline, Summary, About</td><td>Profile text</td></tr>
+    <tr><td>Experience, Work History, Resume</td><td>Description of experience</td></tr>
+    <tr><td>Location, LinkedIn URL, Profile URL, Email</td><td>Contact and matching duplicates</td></tr>
+    <tr><td>Clearance, Security Clearance</td><td>Self-reported clearance</td></tr>
+    <tr><td>Skills, Top Skills (separated by semicolons)</td><td>Skills</td></tr>
+    <tr><td>position_1_title, position_1_company, position_1_start, position_1_end, position_1_description (2, 3 and so on)</td><td>Full job history</td></tr>
+  </tbody></table></div>
+
+  <h2>3. Create the search</h2>
+  <ol>
+    <li>On <a href="#new-search">New search</a>, pick the approved rubric, name the search and choose one or more files.</li>
+    <li>Select <b>Create search</b>. The app merges duplicates across files, removes anyone on the do-not-target list or outside the rubric's locations, and scores everyone from the signal dictionary right away.</li>
+  </ol>
+
+  <h2>4. Score with Claude</h2>
+  <ol>
+    <li>On the search page, set <b>Top</b> (how many of the highest-ranked candidates to send) and <b>Depth</b> (Standard, or Thorough for harder roles and slower answers).</li>
+    <li>Select <b>Score with Claude</b>. Candidates go five at a time; each batch can take up to a minute. Select Stop at any time; finished scores are kept.</li>
+    <li><b>Score with Claude</b> scores only candidates that do not have a Claude score yet. <b>Rescore top</b> scores the top candidates again.</li>
+  </ol>
+  <p class="caption">Claude sees each profile without name, contact details, location, schools or graduation years. Every quote it gives is checked against the profile; quotes that are not found are removed and that criterion shows as UNK.</p>
+
+  <h2>5. Read the slate</h2>
+  <div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody>
+    <tr><td>Total</td><td>Weighted score out of 100 across all criteria</td></tr>
+    <tr><td>Coverage</td><td>Share of the rubric's weight that has verified evidence. Low coverage means the profile says little, not that the person is weak</td></tr>
+    <tr><td>Four squares</td><td>Score for that criterion, 0 to 4</td></tr>
+    <tr><td>UNK</td><td>No evidence found. Not the same as a low score; worth asking about</td></tr>
+    <tr><td>Flags</td><td>Things to check before contact: self-reported clearance, comp risk, recent departure from a partner, stale data</td></tr>
+    <tr><td>Scorer</td><td>HEUR for signal-dictionary scores, CLAUDE for Claude scores</td></tr>
+    <tr><td>Evidence verified</td><td>Share of Claude's quotes found in the profiles. Tell the app owner if it is often below 98%</td></tr>
+  </tbody></table></div>
+
+  <h2>6. Review candidates</h2>
+  <ol>
+    <li>Select <b>Review next</b>, or a candidate's name.</li>
+    <li>Read the summary, the flags and the quoted evidence for each criterion. The full profile is at the bottom.</li>
+    <li>Choose a reason and select <b>Approve</b> or <b>Reject</b>. Add a note if useful. The app moves to the next unreviewed candidate.</li>
+  </ol>
+  <p class="caption">Use the reason "Evidence or score is wrong" whenever a quote or score does not hold up. Those reviews are how the scoring gets better.</p>
+
+  <h2>7. Draft outreach</h2>
+  <ol>
+    <li>On a candidate's page, select <b>Draft message</b>.</li>
+    <li>Copy the draft into InMail, ClearanceJobs messaging or email. Replace [First name] and [Recruiter name], edit it, and send it yourself.</li>
+  </ol>
+
+  <h2>8. Export and share</h2>
+  <p>Select <b>Export CSV</b> on the search page. The file has the ranking, every criterion score and quote, flags and review decisions.${gh ? " This is how you share results from the GitHub version." : ""}</p>
+
+  <h2>Governance</h2>
+  <ul>
+    <li><b>Do-not-target list.</b> Companies whose current employees you must not recruit (from teaming agreements, subcontracts and NDAs). Enter each as a YAML entry with name, aliases, reason and lookback_months, then select Save list. Candidates who left one of these companies within lookback_months are flagged.</li>
+    <li><b>Delete searches</b> you no longer need. Select Delete, then Confirm delete.</li>
+    <li><b>Audit log</b> lists rubric approvals, searches, scoring runs, reviews, outreach drafts and exports.</li>
+  </ul>
+
+  <h2>Troubleshooting</h2>
+  <div class="table-wrap"><table><thead><tr><th>Problem</th><th>What to do</th></tr></thead><tbody>
+    ${gh ? `<tr><td>No Score with Claude button, or "Claude scoring is off"</td><td>Add an Anthropic API key under Governance</td></tr>
+    <tr><td>"The Anthropic API key was rejected"</td><td>Check the key in console.anthropic.com and save it again</td></tr>
+    <tr><td>My searches are gone</td><td>Data lives in one browser on one computer. Use the same browser, and do not clear site data</td></tr>` :
+    `<tr><td>No Score with Claude button</td><td>Claude is not available in this view, or you declined the permission prompt. Reload and allow it</td></tr>
+    <tr><td>A colleague sees an empty app</td><td>Share the app with them from the Share menu, and check they are signed in to claude.ai</td></tr>`}
+    <tr><td>"Usage limit or rate limit was reached"</td><td>Wait a while, then select Score with Claude again. Finished scores are kept</td></tr>
+    <tr><td>Approve a rubric first</td><td>Searches need an approved rubric. Approve one under Rubrics</td></tr>
+    <tr><td>A file will not upload</td><td>Use .csv, .json or .jsonl. Export CSV with a header row</td></tr>
+    <tr><td>A candidate is missing from the slate</td><td>Check Excluded before scoring on the search page, and whether two records were merged as one person</td></tr>
+  </tbody></table></div>
+  <p class="caption">The legal rules behind these steps are in the Legal and Sourcing Guide in the project repository (docs/Legal_and_Sourcing_Guide.docx).</p>`;
 }
 
 // ---- after-render wiring that needs the DOM
