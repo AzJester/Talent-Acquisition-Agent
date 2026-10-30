@@ -2,7 +2,7 @@
 
 AI-assisted sourcing and ranking tool for Astrion Talent Acquisition. It takes an approved hiring rubric and candidate records from licensed sources, scores every candidate on every criterion with quoted evidence, verifies each quote against the source, and gives recruiters a ranked slate to review. Recruiters make every contact decision; the tool never contacts anyone.
 
-The build plan is in [docs/PLAN.md](docs/PLAN.md) (Word version: `docs/Talent_Acquisition_Agent_Build_Plan.docx`). This repository is the Phase 1 MVP from that plan.
+The build plan is in [docs/PLAN.md](docs/PLAN.md) (Word version: `docs/Talent_Acquisition_Agent_Build_Plan.docx`). The one-page pilot brief for HR leadership is [docs/pilot-brief.html](docs/pilot-brief.html). This repository is the Phase 1 MVP from that plan.
 
 ## What it does
 
