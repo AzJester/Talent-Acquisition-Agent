@@ -10,7 +10,7 @@ How the Talent Acquisition Agent is deployed, how to change it, and the self-hos
 | claude.ai app | https://claude.ai/artifact/CeR86Htyv2kzoCjuo5FpYE | Shared app storage on claude.ai | Each viewer's Claude account | Shared team searches and reviews |
 | Self-hosted Python app | Not deployed | Astrion's database | Anthropic API or Amazon Bedrock | Astrion infrastructure, SSO, People Data Labs |
 
-All three score from the same signal dictionary and rubric templates in `config/`. The legal and sourcing rules for every version are in `docs/Legal_and_Sourcing_Guide.docx`.
+All three score from the same signal dictionary and rubric templates in `config/`. The legal and sourcing rules for every version are in `docs/Legal_and_Sourcing_Guide.docx`. Step-by-step instructions for users are in `docs/User_Guide.docx` and on the app's Help page.
 
 ## GitHub Pages version
 
@@ -50,18 +50,16 @@ The app is a single page hosted by claude.ai. It needs no AWS account, no server
 
 ### Access
 
-The database rules are set at publish time and enforced by claude.ai, not by page code.
+Access is open while the app is a concept application. The database uses claude.ai's default rules: anyone who can open the app reads all searches, candidates and reviews, and Contributors and above change them.
 
 | Who | Level | What they get |
 |---|---|---|
-| Owner and Editors | `admin` | Everything, including the do-not-target list and deleting searches |
-| Contributors, and Astrion members of the owner's Claude organization arriving by link | `interact` | Run searches, score, review, export, edit rubrics |
-| Viewers, Commenters, and anyone outside the organization (public link or email invite) | `view` | The page loads but shows no candidate data |
+| Owner, Editors and Contributors | `interact` and above | Run searches, score, review, export, edit rubrics and the do-not-target list, delete searches |
+| Astrion members of the owner's Claude organization arriving by a shared link | `interact` | Same as Contributors |
+| Viewers, Commenters, and anyone outside the organization (public link or email invite) | `view` | Read everything; cannot change anything (claude.ai never lets outside visitors write) |
 | Signed-out visitors | none | No data |
 
-Rules as published: `{path: "", read: "interact", write: "interact"}` and `{path: "config", read: "interact", write: "admin"}`. These were checked after the first publish: a `view`-level read returns nothing, and an `interact`-level write to `config` is refused.
-
-To give the team access, open the app, use **Share**, and either share it with the Astrion organization or add each person as a Contributor. A public link is safe to hand out only because of the rules above. Outside visitors see an empty app.
+Published with `db: {}` (root defaults: read `view`, write `interact`). To share it, use the app's Share menu. To lock it down later, republish with rules such as `{path: "", read: "interact", write: "interact"}` and `{path: "config", read: "interact", write: "admin"}`, and restore the Editor-only checks on the do-not-target list and search deletion in `standalone/app.html`.
 
 ### What the standalone app does
 

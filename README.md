@@ -6,7 +6,7 @@ AI-assisted sourcing and ranking tool for Astrion Talent Acquisition. It takes a
 
 **Shared team version on claude.ai:** https://claude.ai/artifact/CeR86Htyv2kzoCjuo5FpYE (sign in with a Claude account that has Contributor access).
 
-How each version is deployed, who can see what, how to change it, and the AWS self-hosting path are in [docs/BUILD_NOTES.md](docs/BUILD_NOTES.md). The legal concerns and how to search LinkedIn and other sites lawfully are in `docs/Legal_and_Sourcing_Guide.docx`.
+How each version is deployed, who can see what, how to change it, and the AWS self-hosting path are in [docs/BUILD_NOTES.md](docs/BUILD_NOTES.md). The legal concerns and how to search LinkedIn and other sites lawfully are in `docs/Legal_and_Sourcing_Guide.docx`. Instructions for users are in `docs/User_Guide.docx` and on the app's Help page.
 
 The repository holds the same tool in two forms:
 
