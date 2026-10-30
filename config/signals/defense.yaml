@@ -1,0 +1,115 @@
+# Signal dictionary for defense software roles.
+# Owned by a senior recruiter plus a technical SME. Add an entry whenever the tool misses someone.
+#
+# Each signal matches when every component it lists matches:
+#   employers       company name on a position (word match, case-insensitive; list aliases)
+#   title_patterns  regular expressions tested against that same position's title
+#   keywords        terms found in that position's text (with employers or titles), or anywhere
+#                   in the profile (keyword-only signals)
+# strength: strong (3 of 4), medium (2 of 4), weak (1 of 4). Two strong matches score 4.
+version: 1
+
+capabilities:
+  defense_autonomy_product_leadership:
+    description: Software or product leadership at defense autonomy and C2 product companies
+    signals:
+      - employers: [Anduril Industries, Anduril]
+        title_patterns: ['\b(Director|Head|VP|Vice President|Lead|Principal|Chief|Manager)\b']
+        strength: strong
+        note: Lattice is Anduril's C2 and autonomy software platform
+      - employers: [Shield AI]
+        title_patterns: ['\b(Director|Head|VP|Vice President|Lead|Principal|Chief|Manager)\b']
+        strength: strong
+        note: Hivemind is Shield AI's autonomy stack
+      - employers: [Applied Intuition, EpiSci]
+        title_patterns: ['\b(Director|Head|VP|Vice President|Lead|Principal|Chief|Manager)\b']
+        strength: strong
+        note: EpiSci was acquired by Applied Intuition (verify current org naming)
+      - keywords: [Lattice SDK, Lattice Mesh, Hivemind, Hivemind EdgeOS, Hivemind Pilot]
+        strength: strong
+      - employers: [Anduril Industries, Anduril, Shield AI, Applied Intuition, EpiSci]
+        strength: medium
+      - employers: [Palantir, Scale AI, Saronic, Epirus, Skydio, Rebellion Defense, Govini, Hermeus, Castelion, Picogrid, Vannevar Labs]
+        title_patterns: ['\b(Director|Head|VP|Vice President|Lead|Principal|Chief)\b']
+        strength: medium
+
+  dod_software_factory:
+    description: Leadership of a DoD or IC software factory or enterprise DevSecOps platform
+    signals:
+      # Unit names only where they are unambiguous. Short names that collide with commercial
+      # companies (for example Kraken) produce false matches; SMEs add verified units here.
+      - employers: [Kessel Run, Platform One, BESPIN, Army Software Factory, Space CAMP, Kobayashi Maru, LevelUP Code Works, LevelUP, Marine Corps Software Factory]
+        strength: strong
+      - keywords: [Kessel Run, Platform One, BESPIN, Army Software Factory, Space CAMP, Kobayashi Maru, LevelUP Code Works]
+        strength: strong
+      - keywords: [software factory]
+        strength: medium
+      - keywords: [Party Bus, Big Bang, Iron Bank]
+        strength: medium
+
+  ato_delivery:
+    description: Delivered software through an Authority to Operate, including continuous ATO
+    signals:
+      - keywords: [cATO, continuous ATO, continuous authority to operate]
+        strength: strong
+      - keywords: [ATO, authority to operate, RMF, eMASS, authorizing official, IL5, IL6, FedRAMP High]
+        strength: medium
+      - keywords: [STIG, NIST 800-53, FedRAMP]
+        strength: weak
+
+  devsecops_platform:
+    description: DevSecOps pipelines and platforms for government enclaves
+    signals:
+      - keywords: [DevSecOps]
+        strength: medium
+      - keywords: [Kubernetes, OpenShift, Rancher, GitLab CI, Argo CD, hardened containers, Iron Bank]
+        strength: weak
+
+  large_org_leadership:
+    description: Led a large software engineering organization
+    signals:
+      - title_patterns: ['\b(CTO|Chief Technology Officer|SVP|Senior Vice President|VP|Vice President)\b.*\b(Engineering|Software|Technology|Product)\b', '\b(Head of)\b.*\b(Engineering|Software)\b']
+        strength: strong
+      - title_patterns: ['\b(Senior Director|Director)\b.*\b(Engineering|Software|Development)\b']
+        strength: medium
+      - title_patterns: ['\b(Engineering Manager|Software Manager|Software Engineering Manager)\b']
+        strength: weak
+
+  product_management:
+    description: Product management leadership (roadmap, portfolio, customer outcomes)
+    signals:
+      - title_patterns: ['\b(Chief Product Officer|CPO|VP|Vice President|Head|Director)\b.*\bProduct\b', '\bProduct\b.*\b(Director|Head|Lead)\b']
+        strength: strong
+      - title_patterns: ['\b(Senior |Principal |Group )?Product Manager\b', '\bProduct Owner\b']
+        strength: medium
+      - keywords: [product roadmap, product strategy, product portfolio, product vision]
+        strength: medium
+
+  multi_program_delivery:
+    description: Delivery across multiple programs, services, customers or PEOs
+    signals:
+      - keywords: [multiple programs, across programs, portfolio of programs, multiple services, joint programs, across the services, multi-service, Air Force and Army, Army and Air Force, Navy and Air Force, Army and Navy, Space Force and Air Force]
+        strength: strong
+      - keywords: [PEO, program executive office, program of record, programs of record]
+        strength: medium
+
+  commercial_software_leadership:
+    description: Commercial software product leadership
+    signals:
+      - keywords: [SaaS, commercial product, enterprise software, B2B, ARR, commercial customers, go-to-market]
+        strength: medium
+      - employers: [Microsoft, Google, Amazon, AWS, Salesforce, Oracle, Atlassian, ServiceNow, Workday, Adobe, VMware, Red Hat, GitLab, Databricks, Snowflake]
+        title_patterns: ['\b(Director|Head|VP|Vice President|Principal)\b']
+        strength: medium
+
+  defense_primes:
+    description: Software leadership at defense primes and large integrators
+    signals:
+      - employers: [Lockheed Martin, RTX, Raytheon, Northrop Grumman, L3Harris, General Dynamics, GDIT, Leidos, SAIC, Booz Allen Hamilton, Booz Allen, BAE Systems, CACI, Boeing Defense, Peraton, ManTech, Parsons]
+        title_patterns: ['\b(Director|Head|VP|Vice President|Chief|Program Manager)\b']
+        strength: medium
+
+flags:
+  # Current employers whose senior staff typically hold meaningful private equity.
+  # Used only to flag comp risk for the recruiter; never a score. Review each quarter.
+  equity_heavy_employers: [Anduril, Shield AI, Applied Intuition, Saronic, Epirus, Skydio, Scale AI, Hermeus, Castelion, Vannevar Labs]

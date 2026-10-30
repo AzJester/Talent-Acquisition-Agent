@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Rubrics{% endblock %}
+{% block content %}
+<div class="head">
+  <div>
+    <p class="eyebrow">Talent Acquisition</p>
+    <h1>Rubrics</h1>
+    <p class="lede">A rubric defines what the scorer looks for and how much each item counts. A hiring manager approves it before any search uses it, and approved versions never change.</p>
+  </div>
+  <a class="btn btn-primary" href="/rubrics/new">New rubric</a>
+</div>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Rubric</th><th>ID</th><th class="num">Version</th><th>Status</th><th>Origin</th><th>Approved by</th><th>Created</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td><a href="/rubrics/{{ r.id }}">{{ r.title }}</a></td>
+      <td class="mono">{{ r.slug }}</td>
+      <td class="num">{{ r.version }}</td>
+      <td><span class="tag {% if r.status == 'approved' %}solid{% endif %}">{{ r.status }}</span></td>
+      <td class="mono">{{ r.origin }}</td>
+      <td>{{ r.approved_by or '' }}</td>
+      <td class="mono">{{ r.created_at|dt }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" class="muted">No rubrics. Add YAML files to config/rubrics or create one here.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}New rubric{% endblock %}
+{% block content %}
+<p class="eyebrow">Rubrics</p>
+<h1>New rubric</h1>
+{% if error %}<div class="notice"><span class="label">Not saved</span>{{ error }}</div>{% endif %}
+<div class="grid">
+  <form class="panel" method="post" action="/rubrics/intake">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h3 style="margin-top:0">Draft from a hiring request</h3>
+    <p class="caption">Paste the requisition or the hiring manager's note. The model drafts criteria, weights and guidance; you edit and a hiring manager approves.</p>
+    <div class="field">
+      <label for="request_text">Hiring request</label>
+      <textarea id="request_text" name="request_text" required style="min-height:220px" placeholder="Example: SW Factory Lead. Commercial and defense software product leadership (Anduril Lattice, Applied Intuition, Shield AI Hivemind or similar). Large software team leadership. Product management across multiple programs and services.">{{ request_text }}</textarea>
+    </div>
+    <button class="btn btn-primary" type="submit" {% if not llm_on %}disabled title="Needs a model connection"{% endif %}>Draft rubric</button>
+    {% if not llm_on %}<p class="hint">Needs a model connection. Use YAML or a template instead.</p>{% endif %}
+  </form>
+  <form class="panel" method="post" action="/rubrics">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h3 style="margin-top:0">Paste YAML</h3>
+    <p class="caption">Same format as the templates in config/rubrics. Copy one as a starting point.</p>
+    <div class="field">
+      <label for="yaml_text">Rubric YAML</label>
+      <textarea id="yaml_text" name="yaml_text" class="code" required style="min-height:220px">{{ yaml_text }}</textarea>
+    </div>
+    <button class="btn" type="submit">Save draft</button>
+  </form>
+</div>
+{% endblock %}
