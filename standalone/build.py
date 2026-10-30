@@ -12,6 +12,8 @@ the standalone app and the Python app score from the same source. Two outputs:
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import sys
 from pathlib import Path
@@ -34,6 +36,34 @@ def _wordmark(name: str, cls: str) -> str:
     return svg.replace("<svg ", f'<svg class="wm {cls}" ', 1)
 
 
+SAMPLE_CSV = ROOT / "data" / "samples" / "sample_candidates.csv"
+MAX_POSITIONS = 3
+
+
+def write_sample_csv() -> str:
+    """Write the downloadable sample from the synthetic profiles. It uses every column the importer
+    recognizes, so it also serves as a template."""
+    data = json.loads((ROOT / "data" / "samples" / "synthetic_candidates.json").read_text(encoding="utf-8"))
+    header = ["First Name", "Last Name", "Headline", "Location", "LinkedIn URL", "Email", "Clearance", "Skills", "Summary"]
+    for n in range(1, MAX_POSITIONS + 1):
+        header += [f"position_{n}_{f}" for f in ("title", "company", "start", "end", "description")]
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(header)
+    for p in data["profiles"]:
+        first, _, last = p["full_name"].partition(" ")
+        row = [first, last, p["headline"], p["location"], p["linkedin_url"], p["email"], p["clearance"],
+               "; ".join(p["skills"]), p["summary"]]
+        positions = p["positions"][:MAX_POSITIONS]
+        for n in range(MAX_POSITIONS):
+            pos = positions[n] if n < len(positions) else {}
+            row += [pos.get("title", ""), pos.get("company", ""), pos.get("start") or "", pos.get("end") or "", pos.get("description", "")]
+        w.writerow(row)
+    text = buf.getvalue()
+    SAMPLE_CSV.write_text(text, encoding="utf-8")
+    return text
+
+
 def main() -> None:
     signals = load_signals(ROOT / "config" / "signals").model_dump(mode="json")
     templates = []
@@ -44,7 +74,9 @@ def main() -> None:
                 c.pop("heuristic", None)
         templates.append(data)
     html = (ROOT / "standalone" / "app.html").read_text(encoding="utf-8")
-    html = (html.replace("__SIGNALS_JSON__", _js(signals))
+    sample_csv = write_sample_csv()
+    html = (html.replace("__SAMPLE_CSV__", _js(sample_csv))
+                .replace("__SIGNALS_JSON__", _js(signals))
                 .replace("__TEMPLATES_JSON__", _js(templates))
                 .replace("__WORDMARK_LIGHT__", _wordmark("astrion-wordmark-light.svg", "for-dark"))
                 .replace("__WORDMARK_DARK__", _wordmark("astrion-wordmark-dark.svg", "for-light")))
@@ -64,6 +96,11 @@ def main() -> None:
     (site / "vendor").mkdir(parents=True, exist_ok=True)
     (site / "index.html").write_text(page, encoding="utf-8")
     (site / ".nojekyll").write_text("", encoding="utf-8")
+    (site / "sample_candidates.csv").write_text(sample_csv, encoding="utf-8")
+    # Word guides linked from the Legal and Help pages
+    (site / "docs").mkdir(exist_ok=True)
+    for name in ("Legal_and_Sourcing_Guide.docx", "User_Guide.docx"):
+        (site / "docs" / name).write_bytes((ROOT / "docs" / name).read_bytes())
     print(f"wrote site/index.html ({len(page):,} bytes); run `npm run bundle` in standalone/vendor for site/vendor/anthropic.js")
 
 

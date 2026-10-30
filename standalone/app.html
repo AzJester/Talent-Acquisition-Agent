@@ -151,6 +151,7 @@ try { const t = localStorage.getItem("taa:theme"); if (t === "light" || t === "d
       <a href="#searches" data-nav="searches">Searches</a>
       <a href="#rubrics" data-nav="rubrics">Rubrics</a>
       <a href="#governance" data-nav="governance">Governance</a>
+      <a href="#legal" data-nav="legal">Legal</a>
       <a href="#help" data-nav="help">Help</a>
     </nav>
     <div class="nav-end">
@@ -165,6 +166,8 @@ try { const t = localStorage.getItem("taa:theme"); if (t === "light" || t === "d
 "use strict";
 const SIGNALS = __SIGNALS_JSON__;
 const TEMPLATES = __TEMPLATES_JSON__;
+// Fictional candidates in every column the importer recognizes (built from data/samples by standalone/build.py)
+const SAMPLE_CSV = __SAMPLE_CSV__;
 const APP_VERSION = "1.1.0";
 // "claude" when published as a claude.ai artifact; "github" for the GitHub Pages build (set by standalone/build.py)
 const HOST = window.TAA_HOST === "github" ? "github" : "claude";
@@ -794,7 +797,7 @@ function render(fromData) {
   // Data updates re-render live views; form views keep what the viewer typed
   const kept = route === lastRoute ? keepForm() : {};
   if (fromData && /^(new-search|governance)$/.test(route) && route === lastRoute && document.activeElement && view.contains(document.activeElement)) return;
-  const section = /^rubric/.test(route) ? "rubrics" : route === "governance" || route === "help" ? route : "searches";
+  const section = /^rubric/.test(route) ? "rubrics" : ["governance", "help", "legal"].includes(route) ? route : "searches";
   document.querySelectorAll("[data-nav]").forEach((a) => { if (a.dataset.nav === section) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   const who = document.getElementById("who");
   who.textContent = !app.ready ? "Connecting" : HOST === "github" ? `This browser / ${app.sample ? "Claude on" : "heuristic only"}` : app.me && app.me.name ? `${app.me.name} / ${app.isAdmin ? "editor" : app.canWrite === false ? "view only" : "contributor"}` : "Signed out";
@@ -802,6 +805,7 @@ function render(fromData) {
   if (app.flash) html += `<div class="notice"><b>${esc(app.flash.kind)}</b>${esc(app.flash.text)} <button class="btn btn-quiet" data-act="dismiss" style="min-height:28px;margin-left:8px">Dismiss</button></div>`;
   if (!app.ready) html += `<p class="muted">Connecting to shared storage</p>`;
   else if (route === "help") html += helpView();
+  else if (route === "legal") html += legalView();
   else if (!app.db) html += accessPanel();
   else if (route.startsWith("search-")) html += searchView(route.slice(7));
   else if (route.startsWith("cand-")) { const [sid, cid] = route.slice(5).split("-"); html += candView(sid, cid); }
@@ -810,6 +814,7 @@ function render(fromData) {
   else if (route.startsWith("rubric-")) html += rubricView(route.slice(7));
   else if (route === "governance") html += governanceView();
   else if (route === "help") html += helpView();
+  else if (route === "legal") html += legalView();
   else html += searchesView();
   view.innerHTML = html;
   if (route === lastRoute) restoreForm(kept);
@@ -855,7 +860,8 @@ function newSearchView() {
     <div class="field"><label for="ns_rubric">Approved rubric</label><select id="ns_rubric">${approved.map((r) => `<option value="${esc(r.id)}">${esc(r.title)} v${esc(r.version)}, approved by ${esc(r.approvedBy)}</option>`).join("")}</select></div>
     <div class="field"><label for="ns_title">Search name</label><input type="text" id="ns_title" required value="${esc(sel.title)} search"></div>
     <div class="field"><label for="ns_files">Candidate files</label><input type="file" id="ns_files" multiple accept=".csv,.json,.jsonl">
-      <p class="hint">CSV exports from LinkedIn Recruiter, ClearanceJobs or the ATS, or JSON profiles. Duplicates across files are merged.</p></div>
+      <p class="hint">CSV exports from LinkedIn Recruiter, ClearanceJobs or the ATS, or JSON profiles. Duplicates across files are merged.</p>
+      <p class="hint">Need an example or a template? <button class="btn btn-quiet" type="button" data-act="sampleCsv" style="min-height:28px;margin-left:6px">Download sample CSV</button></p></div>
     <button class="btn btn-primary" type="submit">Create search</button>
     <p class="hint" id="ns_status"></p>
   </form><section id="ns_plan"></section></div>`;
@@ -1168,7 +1174,7 @@ function governanceView() {
   <p class="lede">Who can see what, the do-not-target list, retention and the audit log.</p>
   <div class="grid">${HOST === "github" ? `<section class="panel"><h3>Where data lives</h3>
     <p>This is the GitHub version. Searches, candidates, reviews, rubrics and the do-not-target list are saved in this browser only. Nothing is uploaded to GitHub, and other people do not see your data.</p>
-    <p class="caption">Clearing this browser's site data deletes it. Share results with Export CSV. For shared team data, use the claude.ai version of the app.</p></section>
+    <p class="caption">Clearing this browser's site data deletes it. Share results with Export CSV.</p></section>
   <section class="panel"><h3>Claude access</h3>
     <p class="caption">Claude scoring, rubric drafting and outreach drafts need an Anthropic API key. The key stays in this browser and is sent only to api.anthropic.com. Anyone who can use this browser profile can use it, so use a key with a spending limit.</p>
     <div class="field"><label for="api_key">Anthropic API key</label><input type="password" id="api_key" autocomplete="off" placeholder="${storedKey() ? "Saved. Enter a new key to replace it." : "sk-ant-..."}"></div>
@@ -1199,12 +1205,133 @@ async function loadAudit() {
   } catch (e) { box.innerHTML = `<p class="muted">The audit log is not available (${esc(e.code || "error")}).</p>`; }
 }
 
+// ---- legal and sourcing guide (same content as docs/Legal_and_Sourcing_Guide.docx)
+// Word downloads are static files on the GitHub site; the claude.ai sandbox cannot serve them
+function docLink(file, label) {
+  return HOST === "github" ? `<p><a class="btn" href="docs/${file}" download>${esc(label)}</a></p>` : "";
+}
+function legalView() {
+  const tbl = (head, rows) => `<div class="table-wrap"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  return `<p class="label">Legal</p><h1>Legal and sourcing guide</h1>
+  <p class="lede">What the law allows, what it does not, and how recruiters search candidate sites legally.</p>
+  <div class="notice quiet"><b>Not legal advice</b>This summarizes public law, court decisions and platform terms as of October 30, 2026, for planning. State AI hiring law has changed repeatedly since 2024. Astrion employment counsel should confirm each item before the tool is used on live requisitions. Items marked "confirm" could not be checked against a primary source.</div>
+  ${docLink("Legal_and_Sourcing_Guide.docx", "Download the legal and sourcing guide (Word)")}
+
+  <h2>Bottom line</h2>
+  <ol>
+    <li><b>Do not scrape.</b> LinkedIn, Indeed, ClearanceJobs, GitHub and the search engines prohibit automated collection in their terms. LinkedIn enforces in court, and the scrapers it has sued lost or shut down.</li>
+    <li><b>Use licensed access.</b> The tool scores only data recruiters obtain through products Astrion licenses and export themselves, data from licensed data vendors, and Astrion's own records.</li>
+    <li><b>AI ranking is regulated.</b> Federal anti-discrimination law applies to any selection procedure. Illinois, California and New York City add AI-specific duties now, and Colorado from January 2027.</li>
+    <li><b>Keep a human in every decision.</b> Recruiters review every candidate and send every message. The tool never contacts anyone.</li>
+    <li><b>Honor real non-solicits only.</b> Exclude candidates only where a teaming agreement, subcontract or NDA requires it. Informal no-poach understandings with other companies are an antitrust problem.</li>
+  </ol>
+
+  <h2>Why the tool does not scrape</h2>
+  <p>Scraping means software that visits a site and copies data automatically: bots, crawlers, profile-harvesting browser extensions, or scripts driving a logged-in account. Reading a profile yourself is not scraping. The legal risk sits in the platform's contract (its terms of use) and, for some conduct, computer-access law.</p>
+  <h3>Platform terms</h3>
+  ${tbl(["Platform", "What the terms say", "What it means for recruiters"], [
+    ["LinkedIn", "The User Agreement prohibits software, scripts, robots, crawlers, browser plug-ins or add-ons that scrape or copy profiles and other data, and prohibits fake accounts.", "No bots, no profile-harvesting extensions, no shared or fake accounts. Each Recruiter seat belongs to one person."],
+    ["Indeed", "Terms prohibit automated access and collection (confirm the current employer terms).", "Use Indeed's employer products and Astrion's own postings. Applicants flow to the ATS."],
+    ["ClearanceJobs", "The recruiter license governs search, use and export of candidate data (confirm export rights).", "Search inside the product; export only as the license allows."],
+    ["GitHub", "The Acceptable Use Policies bar using information from GitHub, scraped, from the API or otherwise, for spam, including unsolicited email or selling personal information to recruiters, headhunters and job boards.", "Read public profiles and contact people one at a time. No harvested lists of GitHub users and no bulk email."],
+    ["Search engines", "Terms prohibit automated querying and collection of results.", "Manual X-ray searches are fine. Automated collection of results is not."],
+  ])}
+  <h3>What the courts have said</h3>
+  ${tbl(["Case", "Year", "Outcome", "Why it matters"], [
+    ["hiQ Labs v. LinkedIn", "2019 to 2022", "The Ninth Circuit read the Computer Fraud and Abuse Act narrowly for public profiles. In November 2022 the district court found hiQ breached LinkedIn's User Agreement through scraping and fake profiles. The December 2022 consent judgment: $500,000, a permanent injunction, and destruction of scraped data, code and algorithms.", "Even where hacking law may not reach public-data scraping, contract law does. The scraper lost."],
+    ["Van Buren v. United States", "2021", "The Supreme Court narrowed \"exceeds authorized access\" under the Computer Fraud and Abuse Act.", "Lowers criminal hacking-law risk for public pages. Does not touch contract, privacy or copyright claims."],
+    ["Meta v. Bright Data", "2024", "The Northern District of California ruled Meta's terms did not bar scraping public data while logged out.", "Narrow: one company's terms, logged-out access only. Recruiting work happens logged in, where terms bind."],
+    ["LinkedIn v. Nubela (Proxycurl)", "2025", "LinkedIn sued in January 2025 over fake accounts and scraping of millions of profiles. Proxycurl shut down in July 2025.", "Vendors built on scraped LinkedIn data can disappear overnight, and their customers' pipelines go with them."],
+  ])}
+
+  <h2>How we search these sites legally</h2>
+  <p>The tool writes the search strings and scores what recruiters bring back. Recruiters do the searching inside licensed products, under their own accounts.</p>
+  ${tbl(["Source", "Legal route", "How it works with the tool"], [
+    ["LinkedIn", "LinkedIn Recruiter seats; the Hiring Assistant add-on for AI search inside LinkedIn; Recruiter System Connect to sync with an approved ATS.", "Paste the tool's Boolean string and filters into Recruiter. Save results to a project. Move them out only through routes the contract allows (RSC sync to the ATS, or the seat's export functions; confirm in Astrion's contract). Contact through InMail."],
+    ["ClearanceJobs", "Recruiter license.", "Same Boolean strings. Export as the license allows, then upload the file."],
+    ["Indeed", "Astrion job postings; Indeed employer sourcing products under an employer agreement.", "Applicants arrive in the ATS; export from the ATS and upload."],
+    ["People data vendors (for example People Data Labs)", "Licensed API under a written contract.", "Before signing: data provenance (no scraped LinkedIn data), the vendor's FCRA position, deletion duties and indemnity. Upload the vendor's JSON."],
+    ["GitHub, conference speaker lists, patents, press releases, company sites", "Public pages read by a person.", "Look up individuals by hand and note the URL as the source. No bulk harvesting and no bulk email."],
+    ["Astrion's own data", "ATS history, employee referrals, key personnel from past proposals.", "The strongest source and the one competitors cannot buy. Use within Astrion's applicant privacy notices and retention rules."],
+    ["Search engines (X-ray search)", "Manual searches by a recruiter.", "Allowed by hand. Automated collection of results is not."],
+  ])}
+  <h3>The lawful workflow</h3>
+  <ol>
+    <li>A hiring manager approves the rubric in the tool.</li>
+    <li>The tool generates Boolean strings and company and title filters.</li>
+    <li>A recruiter runs them inside LinkedIn Recruiter or ClearanceJobs under Astrion's licensed seats.</li>
+    <li>The recruiter exports or syncs results through the routes each license allows.</li>
+    <li>The recruiter uploads the file. The tool scores each candidate with quoted, verified evidence.</li>
+    <li>The recruiter reviews the slate and contacts chosen candidates individually.</li>
+  </ol>
+
+  <h2>Employment law that applies to AI ranking</h2>
+  <h3>Federal</h3>
+  <ul>
+    <li><b>Title VII, ADEA and ADA.</b> Disparate impact applies to any selection procedure, including AI-assisted sourcing. The Uniform Guidelines' four-fifths rule is the usual first screen. The EEOC withdrew its AI technical assistance documents in January 2025; the statutes did not change.</li>
+    <li><b>Federal contractor rules.</b> Executive Order 11246 affirmative action obligations were rescinded in January 2025. Section 503 (disability) and VEVRAA (veterans) obligations remain.</li>
+    <li><b>Fair Credit Reporting Act.</b> A data vendor whose reports are used to decide a candidate's eligibility may be a consumer reporting agency, which brings disclosure, authorization and adverse-action duties. Keep the tool in a sourcing role and get each vendor's FCRA position in writing.</li>
+    <li><b>Federal pressure on state AI laws.</b> A 2025 executive order directs the Justice Department to challenge some state AI laws (confirm current status). Until a court rules, the state laws below stand.</li>
+  </ul>
+  <h3>State and local</h3>
+  ${tbl(["Jurisdiction", "Law and status", "What it requires", "How the tool helps"], [
+    ["Illinois", "HB 3773, amending the Illinois Human Rights Act. In effect since January 1, 2026. Applies with one Illinois employee.", "No AI use with a discriminatory effect; no zip codes as a proxy for protected classes; notice when AI is used in employment decisions. Notice rules are unsettled (confirm).", "Scoring never sees location. Ranking is in code. Add AI-use notice language to postings and outreach."],
+    ["California", "Civil Rights Council automated-decision regulations, in effect since October 1, 2025.", "Discrimination through automated decision systems is prohibited; anti-bias testing weighs in an employer's defense; records kept four years.", "Audit log, rubric versions, approvers and CSV export support the record."],
+    ["California", "CCPA as amended by the CPRA. Applicant data covered since January 1, 2023.", "Notice at collection; access and deletion rights for California residents.", "Delete searches on request."],
+    ["New York City", "Local Law 144, enforced since July 5, 2023.", "For automated employment decision tools used for New York City roles: an independent bias audit within the prior year, a published summary, and notice at least 10 business days before use.", "Do not use the tool for New York City roles until counsel decides whether it is covered and, if so, an audit is done."],
+    ["Colorado", "SB 26-189 replaced the original AI Act. Effective January 1, 2027; enforcement tied up in federal litigation.", "Narrower duties for automated decision technology used in consequential decisions.", "Watch item. Revisit before January 2027."],
+  ])}
+
+  <h2>Defense-specific concerns</h2>
+  <ul>
+    <li><b>Non-solicits and antitrust.</b> Teaming agreements and subcontracts often bar soliciting the partner's staff; honor them through the do-not-target list. Do not go further: agreements between competitors not to recruit each other's people (no-poach) are treated as per se illegal by the Justice Department and FTC (2016 guidance, restated in their January 2025 worker guidelines; current enforcement posture unclear). Counsel should approve the basis for every list entry.</li>
+    <li><b>Recruiting current federal employees and service members.</b> A federal employee seeking outside employment must recuse from matters affecting the prospective employer (5 CFR 2635, subpart F). An official participating in a procurement must report employment contacts from a bidder (Procurement Integrity Act, 41 U.S.C. 2103). After hire, post-employment rules (18 U.S.C. 207) limit what former officials may do on Astrion's behalf. Bring Astrion's ethics office in before contacting anyone in government.</li>
+    <li><b>Clearances.</b> Treat every clearance statement as self-reported. The facility security officer verifies eligibility through DCSA systems after a conditional offer.</li>
+    <li><b>Citizenship.</b> Screen on citizenship only where law, regulation, executive order or a government contract requires it. Otherwise citizenship screening risks discrimination claims under the Immigration and Nationality Act (8 U.S.C. 1324b) and Title VII.</li>
+    <li><b>Controlled information in rubrics.</b> Write rubrics at the level of a public job posting, so no controlled technical detail goes into them.</li>
+  </ul>
+
+  <h2>Outreach rules</h2>
+  <ul>
+    <li>Recruiters send every message personally. The tool drafts; it never sends.</li>
+    <li>Use the platform's own messaging (InMail, ClearanceJobs messaging) for people found there.</li>
+    <li>Keep email individual. Say who you are and why you are writing, and honor requests to stop.</li>
+    <li>Do not text candidates through automated systems without consent (Telephone Consumer Protection Act).</li>
+    <li>Do not email GitHub users in bulk or from harvested lists.</li>
+  </ul>
+
+  <h2>Controls built into the tool</h2>
+  ${tbl(["Concern", "Control"], [
+    ["Platform terms and scraping", "No crawler or bot. The tool imports licensed exports and writes search strings for recruiters to run by hand."],
+    ["Fabricated or unsupported evidence", "Every quote is checked against the profile. Unsupported scores become unknown, never zero."],
+    ["Discrimination and proxies", "Scoring never sees name, contact details, location, schools or graduation years. Instructions forbid protected characteristics and proxies. Ranking is computed in code."],
+    ["Human decision-making", "Recruiters approve or reject each candidate with a reason code. The tool contacts no one."],
+    ["Non-solicitation", "Do-not-target list, applied before scoring."],
+    ["Recordkeeping", "Audit log; rubric versions locked on approval with the approver's name; CSV export of every slate."],
+    ["Privacy and retention", "Delete searches and their candidates; data stays in each recruiter's browser."],
+    ["Clearance claims", "Labeled self-reported and unverified everywhere they appear."],
+  ])}
+
+  <h2>Open items for counsel</h2>
+  <ol>
+    <li>Confirm export and data-use rights in Astrion's LinkedIn Recruiter and ClearanceJobs contracts.</li>
+    <li>Decide whether the tool is an automated employment decision tool under New York City Local Law 144.</li>
+    <li>Draft the Illinois AI-use notice and any California notice language.</li>
+    <li>Obtain each data vendor's FCRA position and data provenance terms in writing.</li>
+    <li>Approve the contractual basis for each do-not-target entry and review it for antitrust risk.</li>
+    <li>Set a protocol for contacting current federal employees and service members.</li>
+    <li>Set the retention period for sourced candidates and the CCPA notice at collection.</li>
+    <li>Track federal challenges to state AI laws and Colorado's January 2027 effective date.</li>
+  </ol>
+  ${docLink("Legal_and_Sourcing_Guide.docx", "Download the legal and sourcing guide (Word)")}`;
+}
+
 // ---- help
 function helpView() {
   const gh = HOST === "github";
   const setup = gh ? `
-    <li><b>Open the app.</b> Use the GitHub address your team shares. Everything you do is saved in this browser on this computer. Use the same browser each time.</li>
-    <li><b>Optional: turn on Claude scoring.</b> Under <a href="#governance">Governance</a>, paste an Anthropic API key and select Save key. Get a key at console.anthropic.com (API Keys) and set a monthly spending limit there. Tick "Remember on this computer" to keep it after the tab closes. Without a key the app still works, using signal-dictionary scores.</li>` : `
+    <li><b>Open the app.</b> Use the GitHub address your team shares. No sign-in or account is needed. Everything you do is saved in this browser on this computer, so use the same browser each time.</li>
+    <li><b>Optional: turn on Claude scoring.</b> The app works without it, using signal-dictionary scores. To add Claude, open <a href="#governance">Governance</a>, paste an Anthropic API key and select Save key. Get a key at console.anthropic.com (API Keys) and set a monthly spending limit there. Tick "Remember on this computer" to keep it after the tab closes.</li>` : `
     <li><b>Open the app signed in to claude.ai.</b> Searches and reviews are shared with everyone who has the link and access.</li>
     <li><b>Allow Claude when asked.</b> The first time you score, draft a rubric or draft outreach, claude.ai asks you to allow the app to use Claude. Scoring uses your own Claude usage.</li>`;
   return `<p class="label">Help</p><h1>How to use the Talent Acquisition Agent</h1>
@@ -1243,6 +1370,8 @@ function helpView() {
     <tr><td>Skills, Top Skills (separated by semicolons)</td><td>Skills</td></tr>
     <tr><td>position_1_title, position_1_company, position_1_start, position_1_end, position_1_description (2, 3 and so on)</td><td>Full job history</td></tr>
   </tbody></table></div>
+  <p>The sample file has ten fictional candidates in this format. Use it to try the app, or as a template for your own exports.</p>
+  <p><button class="btn" type="button" data-act="sampleCsv">Download sample CSV</button> <span class="caption" id="sample_status"></span></p>
 
   <h2>3. Create the search</h2>
   <ol>
@@ -1305,7 +1434,8 @@ function helpView() {
     <tr><td>A file will not upload</td><td>Use .csv, .json or .jsonl. Export CSV with a header row</td></tr>
     <tr><td>A candidate is missing from the slate</td><td>Check Excluded before scoring on the search page, and whether two records were merged as one person</td></tr>
   </tbody></table></div>
-  <p class="caption">The legal rules behind these steps are in the Legal and Sourcing Guide in the project repository (docs/Legal_and_Sourcing_Guide.docx).</p>`;
+  <p class="caption">The legal rules behind these steps are on the <a href="#legal">Legal</a> page.</p>
+  ${docLink("User_Guide.docx", "Download the user guide (Word)")}`;
 }
 
 // ---- after-render wiring that needs the DOM
@@ -1353,6 +1483,12 @@ document.addEventListener("click", async (ev) => {
   const act = t.dataset.act;
   if (act === "dismiss") { app.flash = null; return render(); }
   if (act === "export") return exportCsv(t.dataset.sid);
+  if (act === "sampleCsv") {
+    if (!app.downloads) return say("Sample CSV", "Downloads are not available in this view.");
+    try { await app.downloads.save({ filename: "sample_candidates.csv", data: SAMPLE_CSV }); }
+    catch (e) { if (e && e.code !== "cancelled") say("Sample CSV", "The file was not saved (" + (e.code || "error") + ")."); }
+    return;
+  }
   if (act === "score") return scoreSearch(t.dataset.sid, t.dataset.mode);
   if (act === "stop") { app.scoring?.ctl.abort(); return; }
   if (act === "review") return review(t.dataset.sid, t.dataset.cid, t.dataset.decision);

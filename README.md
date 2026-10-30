@@ -2,15 +2,15 @@
 
 AI-assisted sourcing and ranking tool for Astrion Talent Acquisition. It takes an approved hiring rubric and candidate records from licensed sources, scores every candidate on every criterion with quoted evidence, verifies each quote against the source, and gives recruiters a ranked slate to review. Recruiters make every contact decision; the tool never contacts anyone.
 
-**Run it from GitHub:** https://azjester.github.io/Talent-Acquisition-Agent/ (data stays in your browser; add an Anthropic API key under Governance for Claude scoring).
+**Open the app:** https://azjester.github.io/Talent-Acquisition-Agent/ (no sign-in needed; data stays in your browser; Claude scoring is optional with an Anthropic API key entered under Governance).
 
-**Shared team version on claude.ai:** https://claude.ai/artifact/CeR86Htyv2kzoCjuo5FpYE (sign in with a Claude account that has Contributor access).
+**Sample candidate file:** [data/samples/sample_candidates.csv](data/samples/sample_candidates.csv) (fictional people; also downloadable from the app's New search and Help pages).
 
 How each version is deployed, who can see what, how to change it, and the AWS self-hosting path are in [docs/BUILD_NOTES.md](docs/BUILD_NOTES.md). The legal concerns and how to search LinkedIn and other sites lawfully are in `docs/Legal_and_Sourcing_Guide.docx`. Instructions for users are in `docs/User_Guide.docx` and on the app's Help page.
 
 The repository holds the same tool in two forms:
 
-- `standalone/`: the browser app, built for GitHub Pages and for claude.ai with `python standalone/build.py`.
+- `standalone/`: the browser app the team uses, published to GitHub Pages. Build it with `python standalone/build.py`.
 - `src/taa/`: the self-hosted Python app (FastAPI), for when Astrion runs it on its own infrastructure.
 
 Background: the build plan is in [docs/PLAN.md](docs/PLAN.md) (Word version: `docs/Talent_Acquisition_Agent_Build_Plan.docx`). `docs/pilot-brief.html` is superseded; Astrion chose direct deployment over a pilot.
