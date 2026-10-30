@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Error {{ status }}{% endblock %}
+{% block content %}
+<p class="eyebrow">Error {{ status }}</p>
+<h1>{{ heading }}</h1>
+<p class="lede">{{ message }}</p>
+<p><a href="javascript:history.back()">Go back</a> or return to <a href="/searches">searches</a>.</p>
+{% endblock %}

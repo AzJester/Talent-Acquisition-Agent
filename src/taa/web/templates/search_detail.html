@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}{{ search.title }}{% endblock %}
+{% block head %}{% if search.status in ('queued', 'running') %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block content %}
+<div class="head">
+  <div>
+    <p class="eyebrow">Search {{ search.id }} / {{ rubric.title }} v{{ search.rubric_version }}{% if rrow and rrow.approved_by %} / rubric approved by {{ rrow.approved_by }}{% endif %}</p>
+    <h1>{{ search.title }}</h1>
+  </div>
+  <div class="row">
+    {% set pending = results|selectattr('latest_review', 'none')|list %}
+    {% if search.status == 'complete' and pending %}
+    <a class="btn btn-primary" href="/searches/{{ search.id }}/results/{{ pending[0].id }}">Review next</a>
+    {% endif %}
+    <a class="btn" href="/searches/{{ search.id }}/export.csv">Export CSV</a>
+    <form method="post" action="/searches/{{ search.id }}/rerun">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn btn-quiet" type="submit" {% if search.status in ('queued', 'running') %}disabled{% endif %}>Rerun</button>
+    </form>
+  </div>
+</div>
+
+{% if search.status in ('queued', 'running') %}
+<div class="notice"><span class="label">{{ search.status }}</span>{{ search.progress }}. This page refreshes every few seconds.</div>
+{% elif search.status == 'failed' %}
+<div class="notice"><span class="label">Failed</span>{{ search.error }}</div>
+{% endif %}
+
+{% set st = search.stats or {} %}
+<div class="stats">
+  <div class="stat"><div class="k">Records in</div><div class="v">{{ st.get('records_in', 0) }}</div></div>
+  <div class="stat"><div class="k">Candidates</div><div class="v">{{ st.get('kept', 0) }}</div></div>
+  <div class="stat"><div class="k">Excluded</div><div class="v">{{ st.get('excluded', 0) }}</div></div>
+  <div class="stat"><div class="k">Reviewed</div><div class="v">{{ reviewed }}</div></div>
+  <div class="stat"><div class="k">Approved</div><div class="v">{{ approved_n }}</div></div>
+  <div class="stat"><div class="k">Evidence verified</div><div class="v">{% if st.get('evidence_accuracy') is not none %}{{ '%.1f'|format(st.evidence_accuracy * 100) }}%{% else %}n/a{% endif %}</div></div>
+  <div class="stat"><div class="k">Scorer</div><div class="v small">{{ st.get('scorer', 'pending') }}{% if st.get('llm_failures') %} / {{ st.llm_failures }} fallbacks{% endif %}</div></div>
+</div>
+
+{% if st.get('quotes_removed') %}
+<div class="notice"><span class="label">Evidence check</span>{{ st.quotes_removed }} model quotes were not found in the source profiles and were removed. The affected criteria show as unknown. Report repeated cases to the tool owner.</div>
+{% endif %}
+
+<div class="head" style="margin-bottom:var(--s3)">
+  <h2 style="margin:0">Ranked slate</h2>
+  <div class="row mono" style="font-size:11px;letter-spacing:.14em;text-transform:uppercase">
+    <a href="?show=all" {% if show == 'all' %}aria-current="page"{% endif %}>All</a>
+    <a href="?show=pending">Pending</a>
+    <a href="?show=approved">Approved</a>
+  </div>
+</div>
+<p class="caption">Total is the weighted score out of 100. Coverage is the share of rubric weight with verified evidence. UNK means no evidence was found, which is not the same as a low score.</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th class="num">Rank</th><th>Candidate</th><th>Current role</th>
+      <th class="num">Total</th><th class="num">Coverage</th>
+      {% for c in rubric.criteria %}<th title="{{ c.name }} ({{ c.type }}, weight {{ c.weight|round|int }})">{{ c.label }}</th>{% endfor %}
+      <th class="num">Flags</th><th>Review</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in results %}
+    {% set card = cards.get(r.id) %}
+    {% set cur = (r.profile.positions|selectattr('end', 'none')|list or r.profile.positions or [{}])[0] %}
+    <tr>
+      <td class="num">{{ r.rank }}</td>
+      <td><a href="/searches/{{ search.id }}/results/{{ r.id }}">{{ r.profile.full_name or 'Unnamed candidate' }}</a></td>
+      <td>{{ cur.get('title', '') }}{% if cur.get('company') %}, {{ cur.company }}{% endif %}</td>
+      <td class="num">{{ '%.1f'|format(r.total) }}</td>
+      <td class="num">{{ (r.coverage * 100)|round|int }}%</td>
+      {% for c in rubric.criteria %}{% set sc = card.get(c.id) if card else none %}<td>{{ (sc.score if sc else none)|seg }}</td>{% endfor %}
+      <td class="num">{{ r.flags|length }}</td>
+      <td>{% if r.latest_review %}<span class="tag {% if r.latest_review.decision == 'approve' %}solid{% endif %}">{{ 'approved' if r.latest_review.decision == 'approve' else 'rejected' }}</span>{% else %}<span class="unk">PENDING</span>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="{{ 7 + rubric.criteria|length }}" class="muted">{% if search.status == 'complete' %}No candidates in this view.{% else %}Results appear when the run finishes.{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% if excluded %}
+<h2>Excluded before scoring</h2>
+<p class="caption">Hard filters: the do-not-target list maintained by Contracts, and the rubric's location gate. These candidates were not scored.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Candidate</th><th>Reason</th></tr></thead>
+  <tbody>
+  {% for r in excluded %}<tr><td>{{ r.profile.full_name or r.key }}</td><td>{{ r.exclusion_reason }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h2>Inputs</h2>
+<div class="table-wrap">
+<table>
+  <thead><tr><th>File or source</th><th>Source label</th><th class="num">Records</th><th>Added</th></tr></thead>
+  <tbody>
+  {% for i in inputs %}<tr><td>{{ i.filename }}</td><td class="mono">{{ i.source }}</td><td class="num">{{ i.record_count }}</td><td class="mono">{{ i.created_at|dt }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+</div>
+{% if search.pdl_sql %}
+<label>People Data Labs query</label>
+<pre>{{ search.pdl_sql }}</pre>
+{% endif %}
+
+<h2>Sourcing queries</h2>
+<p class="caption">For the next pass in LinkedIn Recruiter or ClearanceJobs.</p>
+<label>Boolean keywords</label>
+<pre>{{ plan.linkedin_boolean or 'No keywords defined' }}</pre>
+<label>Company filter</label>
+<pre>{{ plan.companies|join(', ') or 'None' }}</pre>
+{% endblock %}

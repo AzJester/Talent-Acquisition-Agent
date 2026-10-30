@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}New search{% endblock %}
+{% block content %}
+<p class="eyebrow">Searches</p>
+<h1>New search</h1>
+
+{% if not approved %}
+<div class="notice"><span class="label">Blocked</span>Searches run only against an approved rubric. <a href="/rubrics">Approve one</a> first.</div>
+{% else %}
+<form method="get" action="/searches/new" class="field">
+  <label for="rubric_pick">Approved rubric</label>
+  <select id="rubric_pick" name="rubric_id" onchange="this.form.submit()">
+    {% for r in approved %}
+    <option value="{{ r.id }}" {% if selected and r.id == selected.id %}selected{% endif %}>{{ r.title }} (v{{ r.version }}, approved by {{ r.approved_by }})</option>
+    {% endfor %}
+  </select>
+  <noscript><button class="btn btn-quiet" type="submit">Load rubric</button></noscript>
+</form>
+
+<div class="grid">
+  <form class="panel" method="post" action="/searches" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="rubric_id" value="{{ selected.id }}">
+    <div class="field">
+      <label for="title">Search name</label>
+      <input type="text" id="title" name="title" required value="{{ selected.title }} search">
+    </div>
+    <div class="field">
+      <label for="files">Candidate files</label>
+      <input type="file" id="files" name="files" multiple accept=".csv,.json,.jsonl">
+      <p class="hint">CSV exports from LinkedIn Recruiter, ClearanceJobs or the ATS, or JSON profiles. Duplicates across files are merged. 20 MB limit.</p>
+    </div>
+    {% if pdl_on %}
+    <div class="field">
+      <label class="check"><input type="checkbox" name="use_pdl" value="1"> Also search People Data Labs</label>
+      <p class="hint">Billed per record returned. Review the query before running.</p>
+    </div>
+    <div class="field">
+      <label for="pdl_sql">People Data Labs SQL</label>
+      <textarea id="pdl_sql" name="pdl_sql" class="code" style="min-height:160px">{{ plan.pdl_sql if plan else '' }}</textarea>
+    </div>
+    <div class="field">
+      <label for="pdl_size">Max records</label>
+      <input type="number" id="pdl_size" name="pdl_size" min="1" max="{{ settings.pdl_max_results }}" value="{{ settings.pdl_max_results }}">
+    </div>
+    {% endif %}
+    <button class="btn btn-primary" type="submit">Run search</button>
+  </form>
+
+  {% if plan %}
+  <section>
+    <h3>Sourcing queries for this rubric</h3>
+    <p class="caption">Paste these into LinkedIn Recruiter or ClearanceJobs, export the results, and upload the file here. Long strings may need splitting.</p>
+    <label>Boolean keywords</label>
+    <pre>{{ plan.linkedin_boolean or 'No keywords defined' }}</pre>
+    <label>Company filter</label>
+    <pre>{{ plan.companies|join(', ') or 'None' }}</pre>
+    <label>Title filter</label>
+    <pre>{{ plan.titles|join(', ') or 'None' }}</pre>
+  </section>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

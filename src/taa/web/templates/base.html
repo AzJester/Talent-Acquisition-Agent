@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Talent Acquisition Agent{% endblock %} | Astrion</title>
+  <link rel="icon" href="/static/img/astrion-mark-white.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/fonts/Archivo/font-face.css">
+  <link rel="stylesheet" href="/static/fonts/JetBrains-Mono/font-face.css">
+  <link rel="stylesheet" href="/static/css/astrion.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="nav">
+    <a class="brand" href="/searches" aria-label="Astrion Talent Acquisition Agent home">
+      <img src="/static/img/astrion-wordmark-light.svg" alt="Astrion">
+      <span>Talent Acquisition Agent</span>
+    </a>
+    <nav class="links" aria-label="Main">
+      <a href="/searches" {% if nav == 'searches' %}aria-current="page"{% endif %}>Searches</a>
+      <a href="/rubrics" {% if nav == 'rubrics' %}aria-current="page"{% endif %}>Rubrics</a>
+      <a href="/audit" {% if nav == 'audit' %}aria-current="page"{% endif %}>Audit log</a>
+    </nav>
+    <div class="who">{{ user }} / scorer: {% if llm_on %}{{ settings.scoring_model }}{% else %}heuristic only{% endif %}</div>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">
+    <div class="inner">
+      <img src="/static/img/astrion-logo-white.svg" alt="Astrion">
+      <p>Sourcing aid. Recruiters make every contact decision. v{{ version }}</p>
+    </div>
+  </footer>
+</body>
+</html>

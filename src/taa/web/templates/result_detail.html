@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{{ p.full_name or 'Candidate' }}{% endblock %}
+{% block content %}
+<p class="eyebrow"><a href="/searches/{{ search.id }}">{{ search.title }}</a> / Rank {{ r.rank }}</p>
+<div class="head">
+  <div>
+    <h1>{{ p.full_name or 'Unnamed candidate' }}</h1>
+    <p class="lede">{{ p.headline }}</p>
+    <p class="caption">{{ p.location or 'Location not listed' }}{% if p.linkedin_url %} / <a href="{{ p.linkedin_url }}" rel="noopener noreferrer" target="_blank">Profile link</a>{% endif %} / Sources: {{ p.sources|join(', ') }}</p>
+  </div>
+  <div class="row">
+    {% if prev_id %}<a class="btn btn-quiet" href="/searches/{{ search.id }}/results/{{ prev_id }}">Previous</a>{% endif %}
+    {% if next_id %}<a class="btn btn-quiet" href="/searches/{{ search.id }}/results/{{ next_id }}">Next</a>{% endif %}
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="k">Total</div><div class="v">{{ '%.1f'|format(r.total) }}</div></div>
+  <div class="stat"><div class="k">Coverage</div><div class="v">{{ (r.coverage * 100)|round|int }}%</div></div>
+  <div class="stat"><div class="k">Unknown requirements</div><div class="v">{{ r.requirement_unknowns }}</div></div>
+  <div class="stat"><div class="k">Scorer</div><div class="v small">{{ card.scorer if card else '' }}</div></div>
+</div>
+
+{% if card and card.summary %}<p class="lede">{{ card.summary }}</p>{% endif %}
+
+{% if r.flags %}
+<h3>Flags for the recruiter</h3>
+<ul class="flags">{% for f in r.flags %}<li>{{ f }}</li>{% endfor %}</ul>
+{% endif %}
+
+<h2>Scores and evidence</h2>
+<p class="caption">Quotes come from the masked profile the scorer saw (no name, contact details, location or schools) and were checked against it.</p>
+{% for c in rubric.criteria %}
+  {% set sc = card.get(c.id) if card else none %}
+  <div class="criterion">
+    <div>
+      <div class="name">{{ c.name }}</div>
+      <div class="meta">{{ c.type }} / weight {{ c.weight|round|int }}</div>
+      <div style="margin-top:8px">{{ (sc.score if sc else none)|seg }} {% if sc and sc.score is not none %}<span class="mono" style="font-size:12px">{{ sc.score }} of 4</span>{% endif %}</div>
+    </div>
+    <div>
+      {% if sc and sc.evidence %}{% for q in sc.evidence %}<blockquote>{{ q }}</blockquote>{% endfor %}{% endif %}
+      {% if sc and sc.rationale %}<p class="caption">{{ sc.rationale }}</p>{% endif %}
+      {% if sc and sc.removed_quotes %}<p class="removed">{{ sc.removed_quotes }} unverified quote{{ 's' if sc.removed_quotes > 1 }} removed</p>{% endif %}
+    </div>
+  </div>
+{% endfor %}
+{% if card and card.notes %}<p class="caption mono" style="margin-top:16px">{{ card.notes|join(' / ') }}</p>{% endif %}
+
+<hr class="rule">
+
+<div class="grid">
+  <section class="panel">
+    <h3 style="margin-top:0">Review</h3>
+    {% if r.latest_review %}
+    <p>Current decision: <span class="tag {% if r.latest_review.decision == 'approve' %}solid{% endif %}">{{ 'approved' if r.latest_review.decision == 'approve' else 'rejected' }}</span>
+      <span class="caption">by {{ r.latest_review.reviewer }}, {{ r.latest_review.created_at|dt }}</span></p>
+    {% endif %}
+    <form method="post" action="/searches/{{ search.id }}/results/{{ r.id }}/review" class="field">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="decision" value="approve">
+      <label for="approve_reason">Approve for outreach</label>
+      <div class="row">
+        <select id="approve_reason" name="reason_code" style="flex:1;min-width:180px">
+          {% for k, v in approve_reasons.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+        </select>
+        <button class="btn btn-primary" type="submit">Approve</button>
+      </div>
+      <input type="text" name="note" placeholder="Note (optional)" style="margin-top:8px" aria-label="Approval note">
+    </form>
+    <form method="post" action="/searches/{{ search.id }}/results/{{ r.id }}/review" class="field">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="decision" value="reject">
+      <label for="reject_reason">Reject</label>
+      <div class="row">
+        <select id="reject_reason" name="reason_code" style="flex:1;min-width:180px">
+          {% for k, v in reject_reasons.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
+        </select>
+        <button class="btn" type="submit">Reject</button>
+      </div>
+      <input type="text" name="note" placeholder="Note (optional)" style="margin-top:8px" aria-label="Rejection note">
+    </form>
+    <p class="hint">Reason codes feed calibration. Use "Evidence or score is wrong" when a quote or score does not hold up.</p>
+  </section>
+
+  <section class="panel" id="outreach">
+    <h3 style="margin-top:0">Outreach draft</h3>
+    {% if r.outreach_draft %}<pre>{{ r.outreach_draft }}</pre>{% else %}<p class="muted">No draft yet. The tool never sends anything; copy the draft into your own channel and edit it.</p>{% endif %}
+    <form method="post" action="/searches/{{ search.id }}/results/{{ r.id }}/outreach">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn" type="submit">{{ 'Redraft' if r.outreach_draft else 'Draft message' }}</button>
+    </form>
+  </section>
+</div>
+
+<h2>Profile</h2>
+{% if p.summary %}<p>{{ p.summary }}</p>{% endif %}
+{% if p.clearance %}<p><span class="tag">Clearance, self-reported</span> {{ p.clearance }}</p>{% endif %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Title</th><th>Company</th><th>Dates</th><th>Description</th></tr></thead>
+  <tbody>
+  {% for pos in p.positions %}
+    <tr><td>{{ pos.title }}</td><td>{{ pos.company }}</td><td class="mono">{{ pos.start or '?' }} to {{ pos.end or 'present' }}</td><td>{{ pos.description }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% if p.skills %}<p class="caption">Skills: {{ p.skills|join(', ') }}</p>{% endif %}
+{% if p.education %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>School</th><th>Degree</th><th>Field</th></tr></thead>
+  <tbody>{% for e in p.education %}<tr><td>{{ e.school }}</td><td>{{ e.degree }}</td><td>{{ e.field }}</td></tr>{% endfor %}</tbody>
+  <tfoot><tr><td colspan="3">Education is shown to recruiters only. It is masked from scoring.</td></tr></tfoot>
+</table>
+</div>
+{% endif %}
+{% endblock %}

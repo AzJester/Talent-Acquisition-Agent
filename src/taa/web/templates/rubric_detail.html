@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}{{ row.title }}{% endblock %}
+{% block content %}
+<p class="eyebrow"><a href="/rubrics">Rubrics</a> / {{ row.slug }} / v{{ row.version }}</p>
+<div class="head">
+  <div>
+    <h1>{{ row.title }}</h1>
+    <p><span class="tag {% if row.status == 'approved' %}solid{% endif %}">{{ row.status }}</span>
+      {% if row.approved_by %}<span class="caption">Approved by {{ row.approved_by }}, {{ row.approved_at|dt }}</span>{% endif %}</p>
+  </div>
+  {% if row.status == 'approved' %}<a class="btn btn-primary" href="/searches/new?rubric_id={{ row.id }}">Start a search</a>{% endif %}
+</div>
+{% if error %}<div class="notice"><span class="label">Not saved</span>{{ error }}</div>{% endif %}
+{% if parse_error %}<div class="notice"><span class="label">Invalid</span>{{ parse_error }}</div>{% endif %}
+{% if unknown_signals %}<div class="notice"><span class="label">Check</span>These signal ids are not in the signal dictionary and will match nothing: {{ unknown_signals|join(', ') }}</div>{% endif %}
+
+{% if rubric %}
+{% if rubric.summary %}<p class="lede">{{ rubric.summary }}</p>{% endif %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Criterion</th><th>Label</th><th>Type</th><th class="num">Weight</th><th>Guidance</th><th>Signals</th></tr></thead>
+  <tbody>
+  {% for c in rubric.criteria %}
+    <tr><td>{{ c.name }}</td><td class="mono">{{ c.label }}</td><td>{{ c.type }}</td><td class="num">{{ c.weight|round|int }}</td>
+      <td>{{ c.guidance }}</td><td class="mono">{{ c.signals|join(', ') }}{% if c.heuristic %} / {{ c.heuristic }}{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+  <tfoot><tr><td colspan="6">Total weight {{ rubric.total_weight|round|int }}. Location gate: {{ rubric.gates.locations|join(', ') or 'none' }}.</td></tr></tfoot>
+</table>
+</div>
+{% endif %}
+
+<div class="grid">
+  <form method="post" action="/rubrics/{{ row.id }}">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <h3 style="margin-top:0">Edit</h3>
+    {% if row.status == 'approved' %}<p class="caption">This version is approved and locked. Saving creates a new draft version that needs its own approval.</p>{% endif %}
+    <div class="field"><label for="yaml_text">Rubric YAML</label><textarea id="yaml_text" name="yaml_text" class="code">{{ yaml_text }}</textarea></div>
+    <button class="btn" type="submit">{{ 'Save as new version' if row.status == 'approved' else 'Save' }}</button>
+  </form>
+  <div>
+    {% if row.status != 'approved' and rubric %}
+    <form class="panel" method="post" action="/rubrics/{{ row.id }}/approve" style="margin-bottom:24px">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <h3 style="margin-top:0">Hiring manager approval</h3>
+      <p class="caption">Approval locks this version. Searches record who approved the rubric they ran against.</p>
+      <div class="field"><label for="approver">Approver name</label><input type="text" id="approver" name="approver" required></div>
+      <button class="btn btn-primary" type="submit">Approve rubric</button>
+    </form>
+    {% endif %}
+    {% if plan %}
+    <h3>Sourcing queries</h3>
+    <label>Boolean keywords</label><pre>{{ plan.linkedin_boolean or 'No keywords defined' }}</pre>
+    <label>Company filter</label><pre>{{ plan.companies|join(', ') or 'None' }}</pre>
+    <label>Title filter</label><pre>{{ plan.titles|join(', ') or 'None' }}</pre>
+    <label>People Data Labs SQL</label><pre>{{ plan.pdl_sql }}</pre>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

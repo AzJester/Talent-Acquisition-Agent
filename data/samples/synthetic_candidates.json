@@ -1,0 +1,351 @@
+{
+  "_note": "SYNTHETIC TEST DATA. Fictional people created for testing and demos. Any resemblance to a real person is coincidental.",
+  "profiles": [
+    {
+      "source": "synthetic",
+      "source_id": "avery-lindqvist",
+      "full_name": "Avery Lindqvist",
+      "headline": "VP Software, Lattice | ex-Platform One | DevSecOps at scale",
+      "summary": "Builder of software organizations that ship to warfighters and commercial customers.",
+      "location": "Huntsville, AL",
+      "positions": [
+        {
+          "title": "VP Software",
+          "company": "Anduril Industries",
+          "start": "2022-08",
+          "end": null,
+          "description": "Lead the Lattice SDK and Lattice Mesh engineering organization of 180 engineers across four product lines. Own delivery to Air Force and Army programs and the continuous ATO pipeline for fielded releases."
+        },
+        {
+          "title": "Director of Engineering",
+          "company": "Platform One",
+          "start": "2019-04",
+          "end": "2022-07",
+          "description": "Led 140 engineers building the Big Bang DevSecOps baseline and Iron Bank hardened containers. Took Party Bus to a cATO and onboarded multiple programs across the Air Force and Space Force."
+        },
+        {
+          "title": "Senior Engineering Manager",
+          "company": "Atlassian",
+          "start": "2015-02",
+          "end": "2019-03",
+          "description": "Managed 45 engineers on an enterprise SaaS product with $200M ARR. Owned the product roadmap with the product director."
+        }
+      ],
+      "education": [
+        {
+          "school": "Example State University",
+          "degree": "BS",
+          "field": "Computer Science",
+          "start": "2004",
+          "end": "2008"
+        }
+      ],
+      "skills": [
+        "Kubernetes",
+        "DevSecOps",
+        "Product strategy",
+        "RMF"
+      ],
+      "clearance": "Active TS/SCI",
+      "linkedin_url": "https://www.linkedin.com/in/example-avery-lindqvist",
+      "email": "avery-lindqvist@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "jordan-okafor",
+      "full_name": "Jordan Okafor",
+      "headline": "Head of Product, Hivemind | Shield AI",
+      "summary": "",
+      "location": "San Diego, CA",
+      "positions": [
+        {
+          "title": "Head of Product, Hivemind",
+          "company": "Shield AI",
+          "start": "2021-01",
+          "end": null,
+          "description": "Own the Hivemind EdgeOS and Hivemind Pilot product roadmap across multiple programs for Navy and Air Force customers. Grew the product and engineering team of 60 people."
+        },
+        {
+          "title": "Senior Product Manager",
+          "company": "Skydio",
+          "start": "2018-03",
+          "end": "2020-12",
+          "description": "Owned the product strategy for an enterprise autonomy product sold to commercial customers and public safety agencies."
+        }
+      ],
+      "education": [],
+      "skills": [
+        "Autonomy",
+        "Product roadmap",
+        "Program of record transitions"
+      ],
+      "clearance": "Secret clearance, active",
+      "linkedin_url": "https://www.linkedin.com/in/example-jordan-okafor",
+      "email": "jordan-okafor@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "riley-castellanos",
+      "full_name": "Riley Castellanos",
+      "headline": "Software factory leader | Kessel Run alum | DevSecOps for joint programs",
+      "summary": "",
+      "location": "Boston, MA",
+      "positions": [
+        {
+          "title": "Director, DevSecOps Platform",
+          "company": "Booz Allen Hamilton",
+          "start": "2021-06",
+          "end": null,
+          "description": "Lead a DevSecOps platform organization of 85 engineers serving portfolio of programs for Army and Navy customers. Delivered continuous ATO for three programs of record working with the authorizing official."
+        },
+        {
+          "title": "Chief of Engineering",
+          "company": "Kessel Run",
+          "start": "2017-09",
+          "end": "2021-05",
+          "description": "Led 70 airmen and contractor engineers in the Air Force software factory. Delivered applications through ATO under RMF with eMASS."
+        }
+      ],
+      "education": [],
+      "skills": [
+        "DevSecOps",
+        "Kubernetes",
+        "OpenShift",
+        "cATO"
+      ],
+      "clearance": "Active TS/SCI with CI polygraph",
+      "linkedin_url": "https://www.linkedin.com/in/example-riley-castellanos",
+      "email": "riley-castellanos@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "morgan-feld",
+      "full_name": "Morgan Feld",
+      "headline": "VP Engineering | Enterprise SaaS",
+      "summary": "",
+      "location": "Austin, TX",
+      "positions": [
+        {
+          "title": "VP Engineering",
+          "company": "Workday",
+          "start": "2018-01",
+          "end": null,
+          "description": "Lead an engineering organization of 220 engineers delivering enterprise software to commercial customers. Own platform reliability and the go-to-market launch calendar."
+        },
+        {
+          "title": "Director of Engineering",
+          "company": "Salesforce",
+          "start": "2013-05",
+          "end": "2017-12",
+          "description": "Led 60 engineers on B2B SaaS products."
+        }
+      ],
+      "education": [],
+      "skills": [
+        "Engineering leadership",
+        "SaaS",
+        "Cloud platforms"
+      ],
+      "clearance": "",
+      "linkedin_url": "https://www.linkedin.com/in/example-morgan-feld",
+      "email": "morgan-feld@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "casey-nakamura",
+      "full_name": "Casey Nakamura",
+      "headline": "Director of Engineering, Defense | Applied Intuition",
+      "summary": "",
+      "location": "Mountain View, CA",
+      "positions": [
+        {
+          "title": "Director of Engineering, Defense",
+          "company": "Applied Intuition",
+          "start": "2023-02",
+          "end": null,
+          "description": "Lead 45 engineers building autonomy software for defense vehicle programs. Work with Army customers on test and evaluation."
+        },
+        {
+          "title": "Engineering Manager",
+          "company": "EpiSci",
+          "start": "2019-06",
+          "end": "2023-01",
+          "description": "Managed a team of 12 working on autonomy for air vehicles."
+        }
+      ],
+      "education": [],
+      "skills": [
+        "Autonomy",
+        "Simulation",
+        "C++"
+      ],
+      "clearance": "",
+      "linkedin_url": "https://www.linkedin.com/in/example-casey-nakamura",
+      "email": "casey-nakamura@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "dana-whitfield",
+      "full_name": "Dana Whitfield",
+      "headline": "Program Manager, Mission Software | Lockheed Martin",
+      "summary": "",
+      "location": "Colorado Springs, CO",
+      "positions": [
+        {
+          "title": "Program Manager",
+          "company": "Lockheed Martin",
+          "start": "2016-04",
+          "end": null,
+          "description": "Program manager for a ground software program of record under PEO Space Systems. Team of 25 engineers. Led the program through ATO under RMF."
+        },
+        {
+          "title": "Software Engineer",
+          "company": "Northrop Grumman",
+          "start": "2010-06",
+          "end": "2016-03",
+          "description": "Developed ground control software."
+        }
+      ],
+      "education": [],
+      "skills": [
+        "Program management",
+        "RMF",
+        "Earned value"
+      ],
+      "clearance": "Active Top Secret",
+      "linkedin_url": "https://www.linkedin.com/in/example-dana-whitfield",
+      "email": "dana-whitfield@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "sam-ferreira",
+      "full_name": "Sam Ferreira",
+      "headline": "Senior Software Engineer | Palantir",
+      "summary": "",
+      "location": "Washington, DC",
+      "positions": [
+        {
+          "title": "Senior Software Engineer",
+          "company": "Palantir",
+          "start": "2020-01",
+          "end": null,
+          "description": "Build data integration services on Kubernetes for government customers."
+        },
+        {
+          "title": "Software Engineer",
+          "company": "Capital One",
+          "start": "2016-07",
+          "end": "2019-12",
+          "description": "Built payments APIs."
+        }
+      ],
+      "education": [],
+      "skills": [
+        "Java",
+        "Kubernetes",
+        "Spark"
+      ],
+      "clearance": "Active Secret",
+      "linkedin_url": "https://www.linkedin.com/in/example-sam-ferreira",
+      "email": "sam-ferreira@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "alex-brennan",
+      "full_name": "Alex Brennan",
+      "headline": "Group Product Manager, Azure Government",
+      "summary": "",
+      "location": "Reston, VA",
+      "positions": [
+        {
+          "title": "Group Product Manager",
+          "company": "Microsoft",
+          "start": "2019-09",
+          "end": null,
+          "description": "Lead the product portfolio for Azure Government IL5 and IL6 services across multiple services and agencies. Owned FedRAMP High authorization roadmap."
+        },
+        {
+          "title": "Product Manager",
+          "company": "Amazon Web Services",
+          "start": "2015-03",
+          "end": "2019-08",
+          "description": "Product manager for GovCloud networking."
+        }
+      ],
+      "education": [],
+      "skills": [
+        "Product strategy",
+        "FedRAMP",
+        "Cloud"
+      ],
+      "clearance": "Active TS/SCI",
+      "linkedin_url": "https://www.linkedin.com/in/example-alex-brennan",
+      "email": "alex-brennan@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "taylor-brooks",
+      "full_name": "Taylor Brooks",
+      "headline": "Software Engineering Manager",
+      "summary": "",
+      "location": "Huntsville, AL",
+      "positions": [
+        {
+          "title": "Software Engineering Manager",
+          "company": "Leidos",
+          "start": "2021-03",
+          "end": null,
+          "description": ""
+        }
+      ],
+      "education": [],
+      "skills": [],
+      "clearance": "Active TS/SCI",
+      "linkedin_url": "https://www.linkedin.com/in/example-taylor-brooks",
+      "email": "taylor-brooks@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    },
+    {
+      "source": "synthetic",
+      "source_id": "jamie-holt",
+      "full_name": "Jamie Holt",
+      "headline": "Director, Public Sector Engineering | Scale AI",
+      "summary": "",
+      "location": "Washington, DC",
+      "positions": [
+        {
+          "title": "Director, Public Sector Engineering",
+          "company": "Scale AI",
+          "start": "2022-05",
+          "end": null,
+          "description": "Lead 50 engineers delivering data and evaluation products to DoD customers across Army and Air Force programs. Took two products through ATO."
+        },
+        {
+          "title": "Chief Product Officer",
+          "company": "Example Analytics Startup",
+          "start": "2017-01",
+          "end": "2022-04",
+          "description": "Led product strategy for a B2B SaaS analytics company to $30M ARR."
+        }
+      ],
+      "education": [],
+      "skills": [
+        "Product strategy",
+        "Machine learning",
+        "DevSecOps"
+      ],
+      "clearance": "Secret clearance",
+      "linkedin_url": "https://www.linkedin.com/in/example-jamie-holt",
+      "email": "jamie-holt@example.com",
+      "fetched_at": "2026-10-15T00:00:00Z"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Searches{% endblock %}
+{% block content %}
+<div class="head">
+  <div>
+    <p class="eyebrow">Talent Acquisition</p>
+    <h1>Searches</h1>
+    <p class="lede">Each search scores candidates from recruiter exports and licensed data against one approved rubric. Every score cites its evidence.</p>
+  </div>
+  {% if has_approved %}
+  <a class="btn btn-primary" href="/searches/new">New search</a>
+  {% else %}
+  <a class="btn btn-primary" href="/rubrics">Approve a rubric first</a>
+  {% endif %}
+</div>
+
+{% if not llm_on %}
+<div class="notice quiet"><span class="label">Heuristic mode</span>No model connection is configured, so scores come from the signal dictionary only. Set ANTHROPIC_API_KEY or the Bedrock provider to enable model scoring.</div>
+{% endif %}
+
+{% if rows %}
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Search</th><th>Rubric</th><th>Status</th><th class="num">Candidates</th><th class="num">Excluded</th><th>Scorer</th><th>Created</th><th>By</th></tr></thead>
+  <tbody>
+  {% for s in rows %}
+    <tr>
+      <td><a href="/searches/{{ s.id }}">{{ s.title }}</a></td>
+      <td>v{{ s.rubric_version }}</td>
+      <td><span class="tag {% if s.status == 'complete' %}solid{% endif %}">{{ s.status }}</span></td>
+      <td class="num">{{ s.stats.get('kept', '') }}</td>
+      <td class="num">{{ s.stats.get('excluded', '') }}</td>
+      <td class="mono">{{ s.stats.get('scorer', '') }}</td>
+      <td class="mono">{{ s.created_at|dt }}</td>
+      <td>{{ s.created_by }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="panel">
+  <h3>No searches yet</h3>
+  <p class="muted">Approve a rubric, export candidates from LinkedIn Recruiter, ClearanceJobs or the ATS as CSV, then start a search. Synthetic sample files are in data/samples for a dry run.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: taa
+      POSTGRES_USER: taa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    env_file: .env
+    environment:
+      TAA_DATABASE_URL: postgresql+psycopg://taa:${POSTGRES_PASSWORD}@db:5432/taa
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - db
+
+volumes:
+  pgdata: {}

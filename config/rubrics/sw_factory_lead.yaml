@@ -1,0 +1,100 @@
+# Software Factory Lead. Starting rubric from the build plan (docs/PLAN.md, Section 7).
+# Weights are a starting point for the hiring manager to adjust before approval.
+id: sw_factory_lead
+version: 1
+title: Software Factory Lead
+summary: >-
+  Leads an Astrion software factory delivering mission software to multiple DoD customers.
+  Owns the engineering organization, the DevSecOps platform and the path to continuous ATO,
+  and runs product management across programs and services.
+role_pitch: >-
+  Astrion is standing up a software factory that delivers mission software across several
+  programs and services, and we are looking for the leader who will build and run it.
+target_titles:
+  - Software Factory Lead
+  - Director of Engineering
+  - VP Engineering
+  - Head of Software
+  - Director of Product
+  - Chief Technology Officer
+target_companies:
+  - Anduril Industries
+  - Shield AI
+  - Applied Intuition
+  - Palantir
+gates:
+  locations: []
+  allow_unknown_location: true
+criteria:
+  - id: large_org_leadership
+    name: Led a large software organization
+    short: Org size
+    type: requirement
+    weight: 20
+    heuristic: team_size
+    signals: [large_org_leadership]
+    guidance: >-
+      4 = led 100 or more engineers, or a director-and-above org with several teams;
+      3 = led 50 to 99; 2 = led 20 to 49 or a senior manager over several teams;
+      1 = led a single team under 20; 0 = no people leadership shown.
+  - id: software_factory_leadership
+    name: DoD software factory or enterprise DevSecOps platform leadership
+    short: SW factory
+    type: requirement
+    weight: 20
+    signals: [dod_software_factory, devsecops_platform]
+    guidance: >-
+      4 = led a DoD or IC software factory or an enterprise DevSecOps platform serving several programs;
+      3 = senior role in one; 2 = led DevSecOps pipelines for a government program;
+      1 = worked in one as an individual contributor; 0 = no government DevSecOps exposure.
+  - id: ato_delivery
+    name: Delivered software through an ATO or continuous ATO
+    short: ATO
+    type: requirement
+    weight: 10
+    signals: [ato_delivery]
+    guidance: >-
+      4 = owned a continuous ATO (cATO) or led several ATOs to approval;
+      3 = led one ATO; 2 = significant role in RMF or ATO work;
+      1 = mentions compliance work in passing; 0 = none.
+  - id: multi_program_product_management
+    name: Product management across multiple programs or customers
+    short: Multi-program PM
+    type: requirement
+    weight: 15
+    signals: [product_management, multi_program_delivery]
+    guidance: >-
+      4 = led product across several programs, services or customer organizations;
+      3 = product leadership for one large program with several customers;
+      2 = product manager on one program; 1 = adjacent role (program or project management);
+      0 = no product responsibility.
+  - id: defense_autonomy_product
+    name: Defense autonomy product leadership (Anduril, Applied Intuition, Shield AI, or peers)
+    short: Def autonomy
+    type: desirement
+    weight: 15
+    signals: [defense_autonomy_product_leadership]
+    guidance: >-
+      4 = senior leadership on Lattice, Hivemind, Applied Intuition defense autonomy or a direct peer product;
+      3 = leadership role at one of those companies; 2 = leadership at an adjacent defense tech company;
+      1 = individual contributor at one of them; 0 = none.
+  - id: commercial_software_leadership
+    name: Commercial software product leadership
+    short: Commercial
+    type: desirement
+    weight: 10
+    signals: [commercial_software_leadership]
+    guidance: >-
+      4 = led a commercial software product or business line; 3 = senior product or engineering leadership
+      at a commercial software company; 2 = commercial product experience below leadership level;
+      1 = brief commercial exposure; 0 = none.
+  - id: active_clearance
+    name: Active clearance (self-reported)
+    short: Clearance
+    type: desirement
+    weight: 10
+    keywords: [TS/SCI, Top Secret, Secret clearance, active clearance, SCI]
+    guidance: >-
+      4 = states an active TS/SCI; 3 = states an active Top Secret; 2 = states an active Secret;
+      1 = states a past or inactive clearance; 0 = none stated. Always self-reported and unverified;
+      eligibility is confirmed by the security office after a conditional offer.

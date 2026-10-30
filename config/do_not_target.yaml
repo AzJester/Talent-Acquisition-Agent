@@ -1,0 +1,13 @@
+# Do-not-target list. Owned by Contracts, built from non-solicitation terms in teaming
+# agreements, subcontracts and NDAs. Candidates whose CURRENT employer matches are excluded
+# before scoring. Former employees who left within lookback_months are flagged, not excluded.
+#
+# This file ships empty on purpose. Do not guess entries; get them from Contracts.
+# If the list itself is sensitive, mount it at deploy time instead of committing it.
+#
+# employers:
+#   - name: Example Teaming Partner Inc.
+#     aliases: [Example Partner]
+#     reason: Non-solicitation clause in teaming agreement (reference number here)
+#     lookback_months: 12
+employers: []
