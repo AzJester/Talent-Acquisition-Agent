@@ -54,3 +54,12 @@ def test_site_ships_word_guides():
         assert (ROOT / "site" / "docs" / name).read_bytes() == (ROOT / "docs" / name).read_bytes()
     html = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
     assert 'href="#legal"' in html and "Legal_and_Sourcing_Guide.docx" in html
+
+
+def test_github_site_loads_no_third_party_scripts():
+    subprocess.run([sys.executable, str(ROOT / "standalone" / "build.py")], check=True, capture_output=True)
+    page = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+    assert "cdnjs.cloudflare.com" not in page
+    assert 'src="vendor/js-yaml.min.js"' in page and 'src="vendor/papaparse.min.js"' in page
+    # The startup watchdog runs before the main script and the main script marks itself started
+    assert page.index("App did not start") < page.index("window.__taaStarted = true")

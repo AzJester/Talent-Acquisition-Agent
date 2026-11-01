@@ -88,10 +88,15 @@ def main() -> None:
     print(f"wrote {out.relative_to(ROOT)} ({len(html):,} bytes, {len(signals['capabilities'])} capabilities, {len(templates)} templates)")
 
     # GitHub Pages: a full document whose head carries what the artifact skeleton would add
-    cut = html.index("</style>") + len("</style>")
+    # No third-party scripts on the GitHub site: work networks often block public CDNs
+    html_site = (html.replace("https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js", "vendor/js-yaml.min.js")
+                     .replace("https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js", "vendor/papaparse.min.js"))
+    if "cdnjs.cloudflare.com" in html_site:
+        raise SystemExit("site build still references cdnjs")
+    cut = html_site.index("</style>") + len("</style>")
     page = ('<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
-            '<script>window.TAA_HOST = "github";</script>\n' + html[:cut] + "\n</head>\n<body>\n" + html[cut:] + "\n</body>\n</html>\n")
+            '<script>window.TAA_HOST = "github";</script>\n' + html_site[:cut] + "\n</head>\n<body>\n" + html_site[cut:] + "\n</body>\n</html>\n")
     site = ROOT / "site"
     (site / "vendor").mkdir(parents=True, exist_ok=True)
     (site / "index.html").write_text(page, encoding="utf-8")
@@ -101,7 +106,7 @@ def main() -> None:
     (site / "docs").mkdir(exist_ok=True)
     for name in ("Legal_and_Sourcing_Guide.docx", "User_Guide.docx"):
         (site / "docs" / name).write_bytes((ROOT / "docs" / name).read_bytes())
-    print(f"wrote site/index.html ({len(page):,} bytes); run `npm run bundle` in standalone/vendor for site/vendor/anthropic.js")
+    print(f"wrote site/index.html ({len(page):,} bytes); run `npm run bundle` in standalone/vendor for site/vendor (SDK and parsers)")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 {
   "name": "taa-standalone-vendor",
   "private": true,
-  "description": "Bundles the Anthropic TypeScript SDK for the GitHub Pages build of the standalone app",
+  "description": "Bundles the Anthropic TypeScript SDK and copies the YAML and CSV parsers for the GitHub Pages build, so the site loads no third-party scripts",
   "scripts": {
-    "bundle": "esbuild entry.js --bundle --format=esm --minify --target=es2020 --outfile=../../site/vendor/anthropic.js"
+    "bundle": "esbuild entry.js --bundle --format=esm --minify --target=es2020 --outfile=../../site/vendor/anthropic.js && cp node_modules/js-yaml/dist/js-yaml.min.js node_modules/papaparse/papaparse.min.js ../../site/vendor/"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.135.0"
+    "@anthropic-ai/sdk": "0.135.0",
+    "js-yaml": "4.1.0",
+    "papaparse": "5.4.1"
   },
   "devDependencies": {
     "esbuild": "0.28.2"
