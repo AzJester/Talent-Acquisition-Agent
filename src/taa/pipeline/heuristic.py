@@ -13,10 +13,13 @@ from taa.signals import STRENGTH_RANK, Matcher, find_keyword, sentence_around
 
 _NUM = r"(\d{1,3}(?:,\d{3})*|\d+)"
 _TEAM_PATTERNS = [
-    re.compile(r"\b(?:led|lead|leading|manag(?:e|ed|es|ing)|built|grew|scaled|oversaw|oversee|oversees|direct(?:ed|s|ing)?|ran|run|runs)\b"
+    re.compile(r"\b(?:led|lead|leads|leading|head|heads|headed|heading|manag(?:e|ed|es|ing)|built|grew|scaled|oversaw|oversee|oversees|direct(?:ed|s|ing)?|ran|run|runs)\b"
                r"[^.\n;]{0,60}?\b" + _NUM + r"\+?\s*(?:-\s*person|person|people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\b", re.I),
     re.compile(r"\b(?:team|org|organization|organisation|department|group|workforce) of\s+" + _NUM + r"\+?", re.I),
     re.compile(r"\b" + _NUM + r"\+?\s*(?:-\s*person|person)\s+(?:team|org|organization|engineering)", re.I),
+    # a head count in parentheses, "(65 engineers)", or with a plus sign, "200+ engineers"
+    re.compile(r"\(\s*" + _NUM + r"\+?\s*(?:people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\s*\)", re.I),
+    re.compile(r"\b" + _NUM + r"\+\s*(?:people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\b", re.I),
 ]
 
 
@@ -49,33 +52,45 @@ def heuristic_card(profile: Profile, rubric: Rubric, matcher: Matcher, mp: Maske
     matches = matcher.match(mp, all_caps) if all_caps else []
     scores: list[CriterionScore] = []
     for crit in rubric.criteria:
-        hits: list[tuple[int, str, str]] = []  # (score, quote, why)
+        hits: list[tuple[int, str, str, str]] = []  # (score, quote, why, kind)
         for m in matches:
             if m.capability in crit.signals:
-                hits.append((STRENGTH_RANK[m.strength], m.quote, f"{m.capability} ({m.strength})"))
+                hits.append((STRENGTH_RANK[m.strength], m.quote, f"{m.capability} ({m.strength})", "signal"))
+        # Keywords with their own score use it. A plain keyword on an item with no signals, no team-size rule and
+        # no scored keywords is a found/not-found check worth full credit; elsewhere it supports at 2.
+        found_only = not crit.signals and not crit.heuristic and not crit.keyword_scores
         for kw in crit.keywords:
             q = find_keyword(mp, kw)
-            if q:
-                hits.append((2, q, f"keyword '{kw}'"))
+            if not q:
+                continue
+            if kw in crit.keyword_scores:
+                hits.append((crit.keyword_scores[kw], q, f"keyword '{kw}' ({crit.keyword_scores[kw]} of 4)", "keyword"))
+            else:
+                hits.append((4 if found_only else 2, q, f"keyword '{kw}'", "keyword"))
         if crit.heuristic == "team_size":
             ts = team_size(mp)
             if ts:
-                hits.append((_team_score(ts[0]), ts[1], f"team size {ts[0]}"))
+                hits.append((_team_score(ts[0]), ts[1], f"team size {ts[0]}", "team"))
         if not hits:
             scores.append(CriterionScore(criterion_id=crit.id, score=None, rationale="No matching evidence found."))
             continue
         hits.sort(key=lambda h: -h[0])
         best = hits[0][0]
-        strong_quotes = {q for s, q, _ in hits if s >= 3}
+        # Two strong signal or team-size quotes lift a 3 to a 4; keyword hits never do
+        strong_quotes = {q for s, q, _, kind in hits if s >= 3 and kind != "keyword"}
         if best == 3 and len(strong_quotes) >= 2:
             best = 4
         evidence: list[str] = []
-        for _, q, _ in hits:
+        for _, q, _, _ in hits:
             if q not in evidence:
                 evidence.append(q)
             if len(evidence) == 3:
                 break
-        why = sorted({w for _, _, w in hits})
+        why = sorted({w for _, _, w, _ in hits})
+        if found_only:
+            scores.append(CriterionScore(criterion_id=crit.id, score=best, evidence=evidence, basis="found",
+                                         rationale="Found " + ", ".join(why[:4]) + "."))
+            continue
         scores.append(CriterionScore(criterion_id=crit.id, score=best, evidence=evidence,
                                      rationale="Matched " + ", ".join(why[:4]) + "."))
     known = [s for s in scores if s.score is not None]

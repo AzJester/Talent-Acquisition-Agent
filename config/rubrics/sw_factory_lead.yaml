@@ -93,7 +93,8 @@ criteria:
     short: Clearance
     type: desirement
     weight: 10
-    keywords: [TS/SCI, Top Secret, Secret clearance, active clearance, SCI]
+    # Each keyword carries the score the guidance gives it, so an active TS/SCI scores 4 without Claude
+    keywords: {TS/SCI: 4, Top Secret: 3, Secret clearance: 2, active clearance: 2, SCI: 4}
     guidance: >-
       4 = states an active TS/SCI; 3 = states an active Top Secret; 2 = states an active Secret;
       1 = states a past or inactive clearance; 0 = none stated. Always self-reported and unverified;

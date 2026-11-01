@@ -81,7 +81,9 @@ It is the same pipeline as the Python app (`src/taa/`), ported to JavaScript in 
 9. **Review:** approve or reject with reason codes, draft outreach, and export a CSV.
 10. **Audit:** rubric changes, approvals, searches, scoring runs, reviews, outreach drafts, exports and deletions are logged.
 
-The heuristic scorer produces the same scores as the Python app. Totals round the way Python's `round()` does (exact ties to the even digit), so the two print identical numbers; on the sample data both give 90.0, 65.0 and 58.8 for the top three and 21.2 for Alex Brennan.
+The heuristic scorer produces the same scores as the Python app. Totals round the way Python's `round()` does (exact ties to the even digit), so the two print identical numbers; on the sample data both give 95.0, 70.0 and 58.8 for the top three and 26.2 for Alex Brennan.
+
+Keyword scoring (beta 1.2.4): a rubric keyword can carry its own 0 to 4 score (`keywords: {TS/SCI: 4, Top Secret: 3}`, stored as `keywords` plus `keyword_scores`). A plain keyword on an item with no signals, no team-size rule and no scored keywords is a found/not-found check worth full credit and shows as FOUND; on other items it supports at 2. Keyword hits never lift a 3 to a 4. Team size also reads "leads/heads ...", "(65 engineers)" and "200+ engineers". "Try it with sample data" runs on its own demo copy of the template (status `demo`), which is never signed off and never offered in New search.
 
 ### Changing it
 

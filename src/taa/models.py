@@ -75,7 +75,37 @@ class Criterion(BaseModel):
     guidance: str = ""
     signals: list[str] = Field(default_factory=list)  # capability ids from the signal dictionary
     keywords: list[str] = Field(default_factory=list)
+    # Optional score (0 to 4) per keyword, e.g. {"TS/SCI": 4, "Top Secret": 3}; unscored keywords use the default rule
+    keyword_scores: dict[str, int] = Field(default_factory=dict)
     heuristic: Literal["team_size"] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _keyword_mapping(cls, data):
+        """Accept keywords as a list, or as a mapping of keyword to score; store a list plus keyword_scores."""
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        kws = data.get("keywords")
+        scores = dict(data.get("keyword_scores") or {})
+        if isinstance(kws, dict):
+            scores = {**{str(k): v for k, v in kws.items()}, **scores}
+            kws = [str(k) for k in kws]
+        kws = [str(k) for k in (kws or [])]
+        for k in scores:
+            if str(k) not in kws:
+                kws.append(str(k))
+        data["keywords"] = kws
+        data["keyword_scores"] = {str(k): v for k, v in scores.items()}
+        return data
+
+    @field_validator("keyword_scores")
+    @classmethod
+    def _check_scores(cls, v: dict[str, int]) -> dict[str, int]:
+        for k, s in v.items():
+            if not 0 <= s <= 4:
+                raise ValueError(f"the score for keyword '{k}' must be a whole number from 0 to 4")
+        return v
 
     @field_validator("id")
     @classmethod
@@ -128,6 +158,7 @@ class CriterionScore(BaseModel):
     evidence: list[str] = Field(default_factory=list)  # verified quotes from the masked profile text
     rationale: str = ""
     removed_quotes: int = 0  # quotes dropped because they were not found in the profile
+    basis: str | None = None  # "found": a keyword-only item scored found or not found, shown as FOUND rather than 0 to 4
 
     @property
     def unknown(self) -> bool:
