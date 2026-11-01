@@ -58,6 +58,7 @@ def draft_rubric(client: LLMClient, request_text: str, signals: SignalDictionary
         "target_companies": data.get("target_companies", []),
         "gates": {"locations": data.get("locations", [])},
         "criteria": criteria,
+        "scoring": 2,
     })
 
 
@@ -66,8 +67,37 @@ def rubric_to_yaml(rubric: Rubric) -> str:
     for c in data["criteria"]:
         if c.get("heuristic") is None:
             c.pop("heuristic", None)
+        if c.get("keyword_cap") is None:
+            c.pop("keyword_cap", None)
+        # One place per keyword: a scored item lists its keywords as a keyword: score mapping
+        scores = c.pop("keyword_scores", None) or {}
+        if scores and set(scores) == set(c.get("keywords", [])):
+            c["keywords"] = {k: scores[k] for k in c["keywords"]}
+        elif scores:
+            c["keyword_scores"] = scores
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100)
 
 
 def rubric_from_yaml(text: str) -> Rubric:
     return Rubric.model_validate(yaml.safe_load(text) or {})
+
+
+def with_current_scoring(yaml_text: str) -> str:
+    """A newly created rubric uses the current scoring rules (2) unless its YAML says otherwise.
+    Rubrics stored before beta 1.2.4 have no scoring line and keep rules 1."""
+    data = yaml.safe_load(yaml_text) or {}
+    if not isinstance(data, dict) or "scoring" in data:
+        return yaml_text
+    # Keep the author's text and comments: put the line after any leading comments; if that does not read back
+    # the same (JSON, flow style, document markers), store a clean dump instead
+    lines = yaml_text.splitlines(keepends=True)
+    i = 0
+    while i < len(lines) and (not lines[i].strip() or lines[i].lstrip().startswith("#") or lines[i].strip() == "---"):
+        i += 1
+    candidate = "".join(lines[:i]) + "scoring: 2\n" + "".join(lines[i:])
+    try:
+        if yaml.safe_load(candidate) == {**data, "scoring": 2}:
+            return candidate
+    except yaml.YAMLError:
+        pass
+    return yaml.safe_dump({**data, "scoring": 2}, sort_keys=False, allow_unicode=True, width=100)

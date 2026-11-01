@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
 from conftest import make_profile
 
 from taa.connectors.file_import import load_file
 from taa.evidence import apply_verification, normalize, verify_quotes
-from taa.models import CriterionScore, ScoreCard
-from taa.pipeline.filters import DoNotTarget, DoNotTargetEntry, apply_filters, recruiter_flags
+from taa.llm.intake import rubric_from_yaml
+from taa.models import CriterionScore, Position, Profile, ScoreCard
+from taa.pipeline.filters import (
+    DoNotTarget,
+    DoNotTargetEntry,
+    apply_filters,
+    recruiter_flags,
+)
 from taa.pipeline.heuristic import heuristic_card, team_size
 from taa.pipeline.mask import masked_view
 from taa.pipeline.rank import totals
@@ -141,3 +148,172 @@ def test_query_plan(rubric, signals):
     assert "Anduril Industries" in plan.companies and "Kessel Run" in plan.companies
     assert '"Software Factory Lead"' in plan.linkedin_boolean and " AND " in plan.linkedin_boolean
     assert plan.pdl_sql.startswith("SELECT * FROM person") and "'anduril industries'" in plan.pdl_sql
+
+
+def _keyword_rubric():
+    return rubric_from_yaml("""
+id: program_analyst
+title: Program Analyst
+scoring: 2
+criteria:
+  - id: budgeting
+    name: Budget and cost analysis
+    type: requirement
+    weight: 40
+    keywords: [budget, cost analysis, EVM]
+  - id: clearance
+    name: Clearance
+    type: desirement
+    weight: 60
+    keywords: {TS/SCI: 4, Top Secret: 3, Secret: 2}
+""")
+
+
+def _profile(summary, title="Program Analyst", company="SAIC"):
+    return Profile(source="test", source_id="1", full_name="Test Person", summary=summary,
+                   positions=[Position(title=title, company=company, start="2020-01")])
+
+
+def test_keyword_mapping_loads_as_list_plus_scores():
+    crit = _keyword_rubric().criteria[1]
+    assert crit.keywords == ["TS/SCI", "Top Secret", "Secret"]
+    assert crit.keyword_scores == {"TS/SCI": 4, "Top Secret": 3, "Secret": 2}
+
+
+def test_keyword_score_out_of_range_is_refused():
+    with pytest.raises(ValueError):
+        rubric_from_yaml("""
+id: r
+title: R
+criteria:
+  - {id: c, name: C, type: requirement, weight: 10, keywords: {TS/SCI: 5}}
+""")
+
+
+def test_tiered_keywords_take_the_highest_grade_and_never_bump(signals):
+    rubric = _keyword_rubric()
+    card = heuristic_card(_profile("Holds Top Secret. Active Top Secret clearance since 2019."), rubric, Matcher(signals))
+    # two Top Secret quotes stay a 3: keyword hits never lift a 3 to a 4
+    assert card.get("clearance").score == 3
+    card = heuristic_card(_profile("Active TS/SCI."), rubric, Matcher(signals))
+    assert card.get("clearance").score == 4 and card.get("clearance").basis is None
+
+
+def test_plain_keywords_on_a_keyword_only_item_count_as_found(signals):
+    rubric = _keyword_rubric()
+    card = heuristic_card(_profile("Owns the program budget and EVM reporting. Active TS/SCI."), rubric, Matcher(signals))
+    budget = card.get("budgeting")
+    assert budget.score == 4 and budget.basis == "found"
+    assert totals(card, rubric)[0] == 100.0
+
+
+def test_template_clearance_follows_its_guidance(rubric, signals):
+    graded = {"Active TS/SCI.": 4, "Active Top Secret clearance.": 3, "Active Secret clearance.": 2}
+    for text, want in graded.items():
+        assert heuristic_card(_profile(text), rubric, Matcher(signals)).get("active_clearance").score == want, text
+
+
+def test_team_size_phrasings(rubric, signals):
+    cases = {"VP, Software Engineering | 200+ engineers": 4, "Director of DevSecOps over 6 teams (65 engineers).": 3,
+             "Leads 120 engineers across three programs.": 4}
+    for text, want in cases.items():
+        assert heuristic_card(_profile(text, title="Director"), rubric, Matcher(signals)).get("large_org_leadership").score == want, text
+
+
+def test_rubrics_without_scoring_keep_the_old_rules(signals):
+    """A rubric approved before beta 1.2.4 has no scoring line; its scores must not change."""
+    old = rubric_from_yaml("""
+id: old
+title: Old
+criteria:
+  - {id: clearance, name: Clearance, type: desirement, weight: 10, keywords: [TS/SCI, Secret clearance]}
+  - {id: org, name: Org, type: requirement, weight: 10, heuristic: team_size}
+""")
+    assert old.scoring == 1
+    card = heuristic_card(_profile("Active Secret clearance. VP, Software | 200+ engineers"), old, Matcher(signals))
+    assert card.get("clearance").score == 2 and card.get("clearance").basis is None
+    assert card.get("org").score is None  # the 200+ phrasing arrived with rules 2
+
+
+def test_lapsed_or_eligible_clearances_are_capped(rubric, signals):
+    cases = {"Inactive TS/SCI (expired 2017).": 1, "Formerly held TS/SCI; no current clearance.": 1,
+             "TS/SCI eligible; no current clearance.": 1, "Active Top Secret (SCI eligible).": 3,
+             "Active TS/SCI with CI poly; previously held Secret.": 4, "Clearance not active: TS/SCI.": None,
+             "Formerly held an active TS/SCI.": 1, "TS/SCI (expired; was active through 2019).": 1,
+             "Active duty Army; TS/SCI inactive since 2019.": 1, "TS SCI, active.": 4, "TS-SCI": 4, "TS//SCI": 4,
+             "No active clearance.": None}
+    for text, want in cases.items():
+        assert heuristic_card(_profile(text), rubric, Matcher(signals)).get("active_clearance").score == want, text
+
+
+def test_team_size_ignores_audiences_hires_and_company_size(rubric, signals):
+    for text in ["Supported 200+ engineers with laptop provisioning.", "Technical recruiter who hired 150+ engineers.",
+                 "Trained 500+ engineers on Kubernetes.", "Our platform is used by 3,000+ developers.",
+                 "Backend engineer at a defense prime with 50,000+ employees.", "Gave heads-up briefings to 900 staff.",
+                 "Head of Developer Relations for a community of 10,000 developers.", "Mentored 25+ developers.",
+                 "Program Manager at Lockheed Martin (110,000 employees)."]:
+        assert heuristic_card(_profile(text, title="Engineer"), rubric, Matcher(signals)).get("large_org_leadership").score is None, text
+
+
+def test_keyword_input_is_strict():
+    for bad in ["keywords: TS/SCI", "keywords: [{TS/SCI: 4}]", "keywords: {TS/SCI: true}", "keywords: {TS/SCI: 2.5}"]:
+        with pytest.raises(ValueError):
+            rubric_from_yaml(f"id: r\ntitle: R\ncriteria:\n  - {{id: c, name: C, type: requirement, weight: 10, {bad}}}\n")
+
+
+def test_a_score_for_a_keyword_not_in_the_list_is_refused():
+    with pytest.raises(ValueError, match="not in keywords"):
+        rubric_from_yaml("""
+id: r
+title: R
+criteria:
+  - id: c
+    name: C
+    type: requirement
+    weight: 10
+    keywords: [TS/SCI]
+    keyword_scores: {TS/SCI: 4, Secret: 2}
+""")
+
+
+def test_mentions_are_all_read_and_negations_skipped(signals):
+    rubric = _keyword_rubric()
+    card = heuristic_card(_profile("Former NSA analyst with Secret. Active TS/SCI."), rubric, Matcher(signals))
+    assert card.get("clearance").score == 4
+    card = heuristic_card(_profile("No budget experience. Strong EVM reporting."), rubric, Matcher(signals))
+    assert card.get("budgeting").score == 4 and "EVM" in card.get("budgeting").evidence[0]
+    card = heuristic_card(_profile("No budget experience."), rubric, Matcher(signals))
+    assert card.get("budgeting").score is None
+
+
+def test_team_size_needs_the_persons_own_team(rubric, signals):
+    cases = {"Director of Talent Acquisition, hired 150+ engineers in 2023.": None,
+             "Senior engineer reporting to the VP of Engineering (200+ engineers).": None,
+             "Director overseeing 150 engineers.": 4, "Engineering Manager (12 engineers).": 1,
+             "VP Engineering | 200 engineers": 4}
+    for text, want in cases.items():
+        assert heuristic_card(_profile(text, title="Engineer"), rubric, Matcher(signals)).get("large_org_leadership").score == want, text
+
+
+def test_keyword_scores_must_be_a_mapping():
+    for bad in ["keyword_scores: [TS/SCI]", "keyword_scores: 3"]:
+        with pytest.raises(ValueError):
+            rubric_from_yaml(f"id: r\ntitle: R\ncriteria:\n  - {{id: c, name: C, type: requirement, weight: 10, keywords: [TS/SCI], {bad}}}\n")
+
+
+def test_current_scoring_line_survives_json_and_flow_style():
+    from taa.llm.intake import with_current_scoring
+    for text in ['{"id": "r", "title": "R", "criteria": [{"id": "c", "name": "C", "type": "requirement", "weight": 10}]}',
+                 "# note\n---\nid: r\ntitle: R\ncriteria: [{id: c, name: C, type: requirement, weight: 10}]\n...\n"]:
+        assert rubric_from_yaml(with_current_scoring(text)).scoring == 2
+
+
+def test_do_not_target_matching():
+    from taa.pipeline.filters import dnt_match
+    yes = [("Acme Corp", "Acme Corp."), ("Acme Inc", "Acme, Inc."), ("Boeing", "The Boeing Company"), ("Acme Holdings LP", "Acme Holdings, L.P."),
+           ("Thales", "Thalès"), ("Macys", "Macy's"), ("Acme Corporation Space Division", "Acme Corp"), ("Leidos Inc.", "Leidos")]
+    no = [("Sierra Nevada Brewing Co.", "Sierra Nevada Corporation"), ("Acme Space Systems", "Acme Corp"), ("Globex", "Inc.")]
+    for company, name in yes:
+        assert dnt_match(company, [name]), (company, name)
+    for company, name in no:
+        assert not dnt_match(company, [name]), (company, name)

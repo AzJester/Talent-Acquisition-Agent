@@ -5,6 +5,7 @@ import csv
 import io
 import re
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -85,7 +86,8 @@ def test_approved_rubric_edit_creates_new_version(client):
     r = client.post(f"/rubrics/{rid}", data={"yaml_text": yaml_text, "csrf": _csrf(page.text)}, follow_redirects=False)
     new_id = int(r.headers["location"].rsplit("/", 1)[1])
     assert new_id != rid
-    assert "v2" in client.get(f"/rubrics/{new_id}").text
+    template_version = int(re.search(r"^version: (\d+)", (Path(__file__).resolve().parents[1] / "config" / "rubrics" / "sw_factory_lead.yaml").read_text(), re.M).group(1))
+    assert f"v{template_version + 1}" in client.get(f"/rubrics/{new_id}").text
     bad = client.post(f"/rubrics/{new_id}", data={"yaml_text": "criteria: []\nid: x\ntitle: y", "csrf": _csrf(page.text)})
     assert "Not saved" in bad.text
 
