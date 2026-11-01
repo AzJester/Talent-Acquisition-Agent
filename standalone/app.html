@@ -131,6 +131,8 @@ td.note { font-size:8pt; color:var(--muted); }
 .crit .name { font:700 15px/1.35 var(--font-sans); }
 .crit .meta { font:400 11px/1.4 var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-top:4px; }
 blockquote { margin:0 0 8px; padding:8px 12px; border-left:2px solid var(--ink); background:var(--quote); font-size:14.5px; }
+blockquote.role { border-left-style:dashed; }
+blockquote.role .k { font:400 11px/1.4 var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-right:8px; }
 ul.flags { list-style:none; margin:0 0 16px; padding:0; }
 main ol, main ul:not(.flags) { margin:0 0 14px; padding-left:22px; display:grid; gap:6px; max-width:80ch; }
 ul.flags li { padding:8px 0; border-bottom:1px solid var(--hair); }
@@ -183,7 +185,7 @@ const SIGNALS = __SIGNALS_JSON__;
 const TEMPLATES = __TEMPLATES_JSON__;
 // Fictional candidates in every column the importer recognizes (built from data/samples by standalone/build.py)
 const SAMPLE_CSV = __SAMPLE_CSV__;
-const APP_VERSION = "1.2.0-beta";
+const APP_VERSION = "1.2.1-beta";
 // "claude" when published as a claude.ai artifact; "github" for the GitHub Pages build (set by standalone/build.py)
 const HOST = window.TAA_HOST === "github" ? "github" : "claude";
 
@@ -363,7 +365,29 @@ function applyVerification(card, sourceText) {
   return card;
 }
 
+// Role matches cite a job as "Title | Company" (the masked position header). They are real
+// profile data but not a sentence, so the page and the outreach draft show them as a role
+function roleRef(q, p) {
+  const t = normalizeQ(q);
+  for (const x of (p && p.positions) || []) {
+    if (!x.title) continue;
+    const head = normalizeQ(`${x.title} | ${x.company}`);
+    if (t === head || t.startsWith(head + " | ")) return x;
+  }
+  return null;
+}
+const roleText = (x) => `${x.title}${x.company ? " at " + x.company : ""}, ${x.start || "start unknown"} to ${x.end || "present"}`;
+
 // ------------------------------------------------------------------ ranking (computed in code, never by a model)
+// Same rule as Python's round(): nearest to the exact binary value, exact ties to the even digit,
+// so the browser and the Python app print the same totals (21.25 rounds to 21.2 in both)
+function pyRound(x, d) {
+  if (!Number.isFinite(x)) return x;
+  const sign = x < 0 ? -1 : 1, s = Math.abs(x).toFixed(100), dot = s.indexOf(".");
+  const tail = s.slice(dot + 1 + d);
+  if (/^50*$/.test(tail) && Number(s[dot + d]) % 2 === 0) return sign * Number(s.slice(0, dot + 1 + d));
+  return sign * Number(Math.abs(x).toFixed(d));
+}
 function totals(card, rubric) {
   const tw = rubric.criteria.reduce((a, c) => a + c.weight, 0);
   let points = 0, covered = 0, reqUnknown = 0;
@@ -372,7 +396,7 @@ function totals(card, rubric) {
     if (!s || s.score === null || s.score === undefined) { if (c.type === "requirement") reqUnknown++; continue; }
     points += c.weight * s.score / 4; covered += c.weight;
   }
-  return { total: Math.round(1000 * points / tw) / 10, coverage: Math.round(1000 * covered / tw) / 1000, reqUnknown };
+  return { total: pyRound(100 * points / tw, 1), coverage: pyRound(covered / tw, 3), reqUnknown };
 }
 function ranked(cands) {
   return cands.filter((c) => !c.excluded).sort((a, b) => b.total - a.total || b.coverage - a.coverage || a.reqUnknown - b.reqUnknown || (a.key < b.key ? -1 : 1));
@@ -446,7 +470,7 @@ function applyFilters(resolved, rubric, dnt) {
     const flags = []; let reason = null;
     for (const e of dnt.employers || []) {
       const names = [e.name, ...(e.aliases || [])];
-      if (currentEmployers(p).some((c) => employerMatch(c, names))) { reason = `Do not target: current employer ${e.name}. ${e.reason || "Non-solicitation obligation"}`; break; }
+      if (currentEmployers(p).some((c) => employerMatch(c, names))) { reason = `Do not target: current employer ${String(e.name).replace(/\.+$/, "")}. ${e.reason || "Non-solicitation obligation"}`; break; }
       if (e.lookback_months) for (const pos of p.positions || []) {
         if (isCurrent(pos) || !employerMatch(pos.company, names)) continue;
         const ago = monthsSince(pos.end, now);
@@ -503,7 +527,8 @@ function loadCsv(text, source) {
     if (!positions.length && (row.current_title || row.current_company))
       positions = [{ title: row.current_title || "", company: row.current_company || "", start: null, end: null, description: row.experience_text || "" }];
     else if (row.experience_text && positions.length) positions[0].description = ((positions[0].description || "") + "\n" + row.experience_text).trim();
-    return { source, source_id: String(i + 1), full_name: name, headline: row.headline || "", summary: row.summary || "", location: row.location || "",
+    const summary = positions.length ? row.summary || "" : [row.summary, row.experience_text].filter(Boolean).join("\n\n");
+    return { source, source_id: String(i + 1), full_name: name, headline: row.headline || "", summary, location: row.location || "",
       positions, education: [], skills: splitList(row.skills), clearance: row.clearance || "", linkedin_url: row.linkedin_url || "",
       email: row.email || "", fetched_at: now, sources: [source] };
   });
@@ -529,17 +554,25 @@ function loadJson(text, source) {
     try { const o = JSON.parse(text); items = o.profiles || o.data || o.candidates || [o]; }
     catch { items = text.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l)); }
   } else throw new Error("Unrecognized JSON layout");
-  return items.filter((o) => o && typeof o === "object").map((o, i) => {
+  if (!Array.isArray(items)) items = [items];
+  const unwrap = (o) => (o && typeof o === "object" && o.data && typeof o.data === "object" && !Array.isArray(o.data) && !o.full_name && !o.positions ? o.data : o);
+  return items.map(unwrap).filter((o) => o && typeof o === "object").map((o, i) => {
     if (Array.isArray(o.experience) && !o.positions) return mapPdl(o, source);
     return { source, source_id: String(i + 1), full_name: "", headline: "", summary: "", location: "", positions: [], education: [], skills: [],
       clearance: "", linkedin_url: "", email: "", fetched_at: nowIso(), ...o, sources: o.sources || [o.source || source] };
   });
 }
+const hasContent = (p) => !!((p.full_name || "").trim() || (p.headline || "").trim() || (p.summary || "").trim() || (p.positions || []).length);
 async function loadFile(file) {
   const text = await file.text(); const lower = file.name.toLowerCase();
   const label = file.name.replace(/\.(csv|json|jsonl)$/i, "").slice(0, 60) || "upload";
-  if (lower.endsWith(".csv")) return loadCsv(text.replace(/^﻿/, ""), label);
-  if (lower.endsWith(".json") || lower.endsWith(".jsonl")) return loadJson(text, label);
+  const check = (ps) => {
+    const kept = ps.filter(hasContent);
+    if (ps.length && !kept.length) throw new Error(`None of the columns in ${file.name} were recognized. Use the column names on the Help page, for example Name, Title, Company, Headline and Summary.`);
+    return kept;
+  };
+  if (lower.endsWith(".csv")) return check(loadCsv(text.replace(/^﻿/, ""), label));
+  if (lower.endsWith(".json") || lower.endsWith(".jsonl")) return check(loadJson(text, label));
   throw new Error(/\.xlsx?$/i.test(file.name)
     ? `${file.name} is an Excel file. In Excel choose File, Save As, "CSV UTF-8", then upload the .csv file.`
     : `${file.name} is not a file this app reads. Use .csv, .json or .jsonl.`);
@@ -553,12 +586,14 @@ function validateRubric(r) {
   if (!r.title) errs.push("title is required.");
   if (!Array.isArray(r.criteria) || !r.criteria.length) errs.push("criteria needs at least one entry.");
   const seen = new Set();
-  for (const c of r.criteria || []) {
+  for (const c of Array.isArray(r.criteria) ? r.criteria : []) {
+    if (!c || typeof c !== "object" || Array.isArray(c)) { errs.push("Each criterion must be a mapping with id, name, type and weight."); continue; }
+    for (const k of ["signals", "keywords"]) if (c[k] !== undefined && c[k] !== null && !Array.isArray(c[k])) errs.push(`criterion '${c.id}': ${k} must be a list.`);
     if (!c.id || !/^[a-z][a-z0-9_]*$/.test(String(c.id))) errs.push(`criterion id '${c.id}' must be snake_case.`);
     if (seen.has(c.id)) errs.push(`criterion id '${c.id}' is repeated.`); seen.add(c.id);
     if (!["requirement", "desirement"].includes(c.type)) errs.push(`criterion '${c.id}': type must be requirement or desirement.`);
     if (!(Number(c.weight) > 0)) errs.push(`criterion '${c.id}': weight must be above 0.`);
-    for (const s of c.signals || []) if (!(SIGNALS.capabilities || {})[s]) errs.push(`criterion '${c.id}': signal '${s}' is not in the signal dictionary.`);
+    for (const s of Array.isArray(c.signals) ? c.signals : []) if (!(SIGNALS.capabilities || {})[s]) errs.push(`criterion '${c.id}': signal '${s}' is not in the signal dictionary.`);
   }
   return errs;
 }
@@ -673,7 +708,9 @@ Rules: under 120 words, plain text, no subject line. Greet with "[First name]" a
 // (same document API the claude.ai store offers) and calls Claude with the viewer's own API key.
 function localDb() {
   const PREFIX = "taa:doc:"; const listeners = new Set();
-  const notify = () => setTimeout(() => { for (const l of [...listeners]) l(); }, 0);
+  // One notification per burst of writes: saving 500 candidates re-reads storage once, not 500 times
+  let pending = false;
+  const notify = () => { if (pending) return; pending = true; setTimeout(() => { pending = false; for (const l of [...listeners]) l(); }, 0); };
   const read = (p) => { try { const v = localStorage.getItem(PREFIX + p); return v ? JSON.parse(v) : undefined; } catch { return undefined; } };
   const write = (p, d) => {
     try { if (d === undefined) localStorage.removeItem(PREFIX + p); else localStorage.setItem(PREFIX + p, JSON.stringify(d)); }
@@ -768,7 +805,8 @@ window.addEventListener("unhandledrejection", (e) => { const r = e && e.reason; 
 
 // ------------------------------------------------------------------ app state and platform
 const app = { db: null, user: null, sample: null, downloads: null, me: null, canWrite: null, isAdmin: false, ready: false,
-  rubrics: [], searches: [], dnt: { employers: [] }, cands: new Map(), candSub: null, candSearch: null, scoring: null, flash: null };
+  rubrics: [], searches: [], dnt: { employers: [] }, cands: new Map(), candSub: null, candSearch: null, scoring: null, flash: null,
+  statusText: {}, loaded: { rubrics: false, searches: false, cands: false } };
 const REJECT = { not_senior_enough: "Not senior enough", wrong_domain: "Wrong domain or experience", comp_risk: "Compensation mismatch likely",
   location: "Location or on-site constraint", already_engaged: "Already contacted or in process", non_solicit: "Non-solicitation concern",
   evidence_wrong: "Evidence or score is wrong", other: "Other (see note)" };
@@ -800,8 +838,8 @@ async function init() {
   }
   app.ready = true;
   if (db) {
-    db.collection("rubrics").onSnapshot((s) => { app.rubrics = s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.title + a.version).localeCompare(b.title + b.version)); render(true); }, onDbError);
-    db.collection("searches").orderBy("createdAt", "desc").limit(300).onSnapshot((s) => { app.searches = s.docs.map((d) => ({ id: d.id, ...d.data() })); render(true); }, onDbError);
+    db.collection("rubrics").onSnapshot((s) => { app.loaded.rubrics = true; app.rubrics = s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.title + a.version).localeCompare(b.title + b.version)); render(true); }, onDbError);
+    db.collection("searches").orderBy("createdAt", "desc").limit(300).onSnapshot((s) => { app.loaded.searches = true; app.searches = s.docs.map((d) => ({ id: d.id, ...d.data() })); render(true); }, onDbError);
     db.doc("config/dnt").onSnapshot((d) => { app.dnt = d.exists ? clone(d.data()) : { employers: [] }; render(true); }, onDbError);
   }
   render();
@@ -810,23 +848,45 @@ function onDbError(e) { if (e && e.code !== "revoked") say("Storage", "Shared st
 function watchCandidates(sid) {
   if (app.candSearch === sid) return;
   if (app.candSub) app.candSub();
-  app.cands = new Map(); app.candSearch = sid; app.candSub = null;
+  app.cands = new Map(); app.candSearch = sid; app.candSub = null; app.loaded.cands = false;
   if (!app.db) return;
   app.candSub = app.db.collection(`searches/${sid}/candidates`).onSnapshot((s) => {
-    app.cands = new Map(s.docs.map((d) => [d.id, { id: d.id, ...d.data() }])); render(true);
+    app.loaded.cands = true; app.cands = new Map(s.docs.map((d) => [d.id, { id: d.id, ...d.data() }])); render(true);
   }, onDbError);
 }
 
 // ------------------------------------------------------------------ rendering
 const routeOf = () => (location.hash || "#searches").slice(1);
 let lastRoute = "";
-function keepForm() { const kept = {}; document.querySelectorAll("#view input[id], #view textarea[id], #view select[id]").forEach((el) => { if (el.type !== "file") kept[el.id] = el.value; }); return kept; }
-function restoreForm(kept) { for (const [id, v] of Object.entries(kept)) { const el = document.getElementById(id); if (el && el.type !== "file") el.value = v; } }
+// Re-renders keep only what the viewer changed. A field nobody touched takes the new value, so
+// a form drawn before the data arrived (an empty do-not-target list, Top = 1) never sticks.
+for (const type of ["input", "change"]) document.addEventListener(type, (e) => { if (e.target && e.target.id) e.target.dataset.dirty = "1"; });
+function keepForm() {
+  const kept = {};
+  document.querySelectorAll("#view input[id], #view textarea[id], #view select[id]").forEach((el) => {
+    if (el.type !== "file" && el.dataset.dirty) kept[el.id] = el.type === "checkbox" ? { checked: el.checked } : { value: el.value };
+  });
+  const a = document.activeElement;
+  if (a && a.id && document.getElementById("view").contains(a)) kept["\u0000focus"] = { id: a.id, start: a.selectionStart, end: a.selectionEnd };
+  return kept;
+}
+function restoreForm(kept) {
+  for (const [id, v] of Object.entries(kept)) {
+    if (id === "\u0000focus") continue;
+    const el = document.getElementById(id); if (!el || el.type === "file") continue;
+    if ("checked" in v) el.checked = v.checked; else el.value = v.value;
+    el.dataset.dirty = "1";
+  }
+  const f = kept["\u0000focus"], el = f && document.getElementById(f.id);
+  if (el && !el.disabled) { el.focus({ preventScroll: true }); try { if (f.start !== null && f.start !== undefined) el.setSelectionRange(f.start, f.end); } catch (e) { /* not a text field */ } }
+}
+// Status lines under buttons ("Saved.", errors) live in app state so a re-render does not erase them
+function setStatus(id, text) { app.statusText[id] = text; const el = document.getElementById(id); if (el) el.textContent = text; }
 function render(fromData) {
   const route = routeOf(); const view = document.getElementById("view");
-  // Data updates re-render live views; form views keep what the viewer typed
+  // Data updates re-render live views; a chosen file cannot be restored, so wait while one is picked
+  if (fromData && route === lastRoute && [...view.querySelectorAll("input[type=file]")].some((f) => f.files && f.files.length)) return;
   const kept = route === lastRoute ? keepForm() : {};
-  if (fromData && /^(new-search|governance)$/.test(route) && route === lastRoute && document.activeElement && view.contains(document.activeElement)) return;
   const section = /^rubric/.test(route) ? "rubrics" : ["governance", "help", "legal"].includes(route) ? route : "searches";
   document.querySelectorAll("[data-nav]").forEach((a) => { if (a.dataset.nav === section) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
   const who = document.getElementById("who");
@@ -847,6 +907,7 @@ function render(fromData) {
   else if (route === "legal") html += legalView();
   else html += searchesView();
   view.innerHTML = html;
+  for (const [id, text] of Object.entries(app.statusText)) { const el = document.getElementById(id); if (el) el.textContent = text; }
   if (route === lastRoute) restoreForm(kept);
   lastRoute = route;
   hydrate(route);
@@ -855,6 +916,11 @@ function accessPanel() {
   return `<p class="label">Access</p><h1>Sign in to use this app</h1>
   <p class="lede">This version of the app keeps its data on claude.ai. Open the link while signed in to claude.ai.</p>
   <p class="caption">If you are signed in and still see this, ask the owner to share the app with you.</p>`;
+}
+function notFound(what) {
+  return `<p class="label">Not found</p><h1>This ${what} is not here</h1>
+  <p class="lede">It was deleted, or it was created in another browser.${HOST === "github" ? " The GitHub version keeps data in the browser that created it, so a link from a colleague opens only on their computer. Ask them for an Export CSV instead." : ""}</p>
+  <p><a class="btn" href="#searches">Go to Searches</a></p>`;
 }
 function viewOnlyNotice() {
   return app.canWrite === false ? `<div class="notice quiet"><b>View only</b>You can read everything here but not change it. Ask the owner for Contributor access to run searches and reviews.</div>` : "";
@@ -886,7 +952,9 @@ function searchesView() {
 // ---- new search
 function newSearchView() {
   const approved = app.rubrics.filter((r) => r.status === "approved");
-  if (!approved.length) return `<h1>New search</h1><div class="notice"><b>Blocked</b>Searches run only against an approved rubric. <a href="#rubrics">Approve one</a> first.</div>`;
+  if (!approved.length) return `<p class="label">Searches</p><h1>New search</h1><div class="notice"><b>Blocked</b>Searches run only against an approved rubric. <a href="#rubrics">Approve one</a> first.</div>
+    <div class="panel"><h3>Want to see it work first?</h3><p>Try it with sample data approves the template rubric and runs a search over ten fictional candidates.</p>
+    <div class="row"><button class="btn btn-primary" data-act="demo">Try it with sample data</button><button class="btn" type="button" data-act="sampleCsv">Download sample CSV</button></div></div>`;
   const sel = approved[0];
   return `<p class="label">Searches</p><h1>New search</h1>${viewOnlyNotice()}
   <div class="grid"><form class="panel" id="newSearchForm">
@@ -907,25 +975,40 @@ function planHtml(r, heading = true) {
     <label>Title filter</label><pre>${esc(p.titles.join(", ") || "None")}</pre>`;
 }
 async function createSearch(form) {
-  const status = document.getElementById("ns_status");
   const r = app.rubrics.find((x) => x.id === document.getElementById("ns_rubric").value);
   const files = [...document.getElementById("ns_files").files];
-  if (!r || r.status !== "approved") return (status.textContent = "Pick an approved rubric.");
-  if (!files.length) return (status.textContent = "Choose at least one candidate file first, using the Candidate files button.");
+  if (!r || r.status !== "approved") return say("New search", "Pick an approved rubric.");
+  if (!files.length) return say("New search", "Choose at least one candidate file first, using the Candidate files button.");
   const btn = form.querySelector("button[type=submit]"); btn.disabled = true;
   try {
-    status.textContent = "Reading files";
+    setStatus("ns_status", "Reading files");
     const profiles = [], inputs = [];
     for (const f of files) { const ps = await loadFile(f); profiles.push(...ps); inputs.push({ name: f.name, count: ps.length }); }
     if (!profiles.length) throw new Error("No candidates were found in the file. Check that the first row holds column names.");
-    const sid = await saveSearch(r, document.getElementById("ns_title").value.trim() || r.title, profiles, inputs, (m) => (status.textContent = m));
+    const sid = await saveSearch(r, document.getElementById("ns_title").value.trim() || r.title, profiles, inputs, (m) => setStatus("ns_status", m));
     location.hash = "#search-" + sid;
   } catch (e) {
-    const msg = e && e.code === "quota_exceeded" ? "Storage is full. Delete old searches under Governance, then try again." : "Could not create the search: " + (e.message || e.code || e);
-    status.textContent = msg; say("New search", msg);
+    const msg = e && e.code === "quota_exceeded"
+      ? `Storage is full, so the search was not saved. This browser holds about ${STORAGE_CANDIDATES.toLocaleString("en-US")} candidates across all searches. Delete old searches under Governance or split the file, then try again.`
+      : "Could not create the search: " + (e.message || e.code || e);
+    setStatus("ns_status", msg); say("New search", msg);
   } finally { btn.disabled = false; }
 }
+// Rough capacity of browser storage (about 5 MB) for the GitHub version, measured with the sample profiles
+const STORAGE_CANDIDATES = 1900;
 async function saveSearch(r, title, profiles, inputs, progress) {
+  try { return await writeSearch(r, title, profiles, inputs, progress); }
+  catch (e) {
+    // Never leave a half-saved search: remove what was written, then report the error
+    const sid = e && e.sid;
+    if (sid) {
+      try { const snap = await app.db.collection(`searches/${sid}/candidates`).get(); for (const d of snap.docs) await app.db.doc(`searches/${sid}/candidates/${d.id}`).delete(); } catch (x) { /* best effort */ }
+      try { await app.db.doc(`searches/${sid}`).delete(); } catch (x) { /* best effort */ }
+    }
+    throw (e && e.cause) || e;
+  }
+}
+async function writeSearch(r, title, profiles, inputs, progress) {
     const rubric = r.rubric;
     const resolved = resolveProfiles(profiles);
     const { kept, excluded } = applyFilters(resolved, rubric, app.dnt);
@@ -940,12 +1023,20 @@ async function saveSearch(r, title, profiles, inputs, progress) {
     const search = { title, rubricId: r.id, rubricTitle: r.title, rubricVersion: r.version,
       rubric, approvedBy: r.approvedBy || "", createdBy: app.me?.id || null, createdAt: nowIso(), status: "saving", inputs,
       stats: { recordsIn: profiles.length, candidates: resolved.size, kept: kept.size, excluded: excluded.length, approved: 0, scorer: "heuristic" } };
-    await app.db.doc(`searches/${sid}`).set(search);
-    let done = 0; const queue = [...cands];
-    const worker = async () => { while (queue.length) { const c = queue.shift(); await app.db.doc(`searches/${sid}/candidates/${c.id}`).set(c); done++; progress(`Saving candidates ${done} of ${cands.length}`); } };
-    await Promise.all([worker(), worker(), worker()]);
-    await app.db.doc(`searches/${sid}`).update({ status: "complete" });
+    try {
+      await app.db.doc(`searches/${sid}`).set(search);
+      let done = 0; const queue = [...cands];
+      const worker = async () => { while (queue.length) {
+        const c = queue.shift(); await app.db.doc(`searches/${sid}/candidates/${c.id}`).set(c); done++;
+        // Let the page paint progress now and then; the browser store writes synchronously
+        if (done % 50 === 0) { progress(`Saving candidates ${done} of ${cands.length}`); await new Promise((res) => setTimeout(res, 0)); }
+      } };
+      await Promise.all([worker(), worker(), worker()]);
+      await app.db.doc(`searches/${sid}`).update({ status: "complete" });
+    } catch (e) { throw { sid, cause: e, code: e && e.code, message: e && e.message }; }
     await audit("search.created", sid, { rubric: r.id, version: r.version, approvedBy: r.approvedBy, files: inputs, kept: kept.size, excluded: excluded.length });
+    // Show the new search at once instead of waiting for the next storage snapshot
+    if (!app.searches.some((x) => x.id === sid)) app.searches = [{ id: sid, ...search, status: "complete" }, ...app.searches];
     return sid;
 }
 
@@ -960,6 +1051,8 @@ async function tryDemo(btn) {
       r = { id, ...(await app.db.doc(`rubrics/${id}`).get()).data() };
       await audit("rubric.approved", null, { rubric: r.slug, version: r.version, approver: "Sample data demo" });
     }
+    const existing = app.searches.find((s) => s.title === "Sample data demo" && s.rubricId === r.id && s.status === "complete");
+    if (existing) { location.hash = "#search-" + existing.id; return; }
     const profiles = loadCsv(SAMPLE_CSV, "sample_candidates");
     const sid = await saveSearch(r, "Sample data demo", profiles, [{ name: "sample_candidates.csv", count: profiles.length }], () => {});
     location.hash = "#search-" + sid;
@@ -972,7 +1065,7 @@ async function tryDemo(btn) {
 function searchView(sid) {
   const s = app.searches.find((x) => x.id === sid);
   watchCandidates(sid);
-  if (!s) return `<p class="muted">Loading search</p>`;
+  if (!s) return app.loaded.searches ? notFound("search") : `<p class="muted">Loading search</p>`;
   const r = s.rubric, all = [...app.cands.values()], list = ranked(all), excluded = all.filter((c) => c.excluded);
   const reviewed = list.filter((c) => c.review).length, approvedN = list.filter((c) => c.review && c.review.decision === "approve").length;
   const llm = list.filter((c) => c.card && c.card.scorer !== "heuristic");
@@ -1036,7 +1129,9 @@ async function scoreSearch(sid, mode) {
   const ctl = new AbortController();
   app.scoring = { sid, done: 0, total: targets.length, msg: "Waiting for Claude. The first batch can take a minute.", ctl };
   render();
-  let failures = 0, refusedBatches = 0;
+  let failures = 0, refusedBatches = 0, scored = 0, lastErr = null, stopped = false;
+  const errText = (e) => (e && e.code ? e.code : "error") + (e && e.message ? ": " + e.message : "");
+  const done = async () => { app.scoring = null; if (scored) await finishScoring(sid, tier, scored); };
   for (let i = 0; i < targets.length && !ctl.signal.aborted; i += 5) {
     const batch = targets.slice(i, i + 5).map((c, j) => ({ c, ref: "p" + (j + 1), mp: maskedView(c.profile) }));
     try {
@@ -1056,40 +1151,49 @@ async function scoreSearch(sid, mode) {
         const card = applyVerification({ scores: r.criteria.map((c) => byId[c.id] || { criterion_id: c.id, score: null, evidence: [], rationale: "Claude returned no score for this criterion.", removed_quotes: 0 }),
           summary: String(item.summary || "").slice(0, 400), scorer: `claude (${tier} tier)`, notes: [`scored ${nowIso().slice(0, 10)}`] }, b.mp.text);
         await app.db.doc(`searches/${sid}/candidates/${b.c.id}`).update({ card, ...totals(card, r) });
+        scored++;
       }
       failures = 0;
     } catch (e) {
-      if (e && e.code === "cancelled") break;
-      if (e && ["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"].includes(e.code)) { app.scoring = null; return say("Claude scoring", "Claude is not allowed for this app in your account. Heuristic scores remain."); }
-      if (e && e.code === "rate_limited") { app.scoring = null; await finishScoring(sid, tier); return say("Claude scoring", "Your Claude usage limit or rate limit was reached. Scored candidates are saved; run it again later to finish."); }
+      if (e && e.code === "cancelled") { stopped = true; break; }
+      if (e && e.code === "not_granted" && HOST === "github") { await done(); return say("Claude scoring", "The Anthropic API key was rejected. Check it under Governance and save it again. Heuristic scores remain."); }
+      if (e && ["not_granted", "sampling_disabled", "not_declared", "capability_disabled", "capability_removed"].includes(e.code)) { await done(); return say("Claude scoring", "Claude is not allowed for this app in your account. Heuristic scores remain."); }
+      if (e && e.code === "rate_limited") { await done(); return say("Claude scoring", `Your Claude usage limit or rate limit was reached. ${scored} candidate(s) were scored and saved; run it again later to finish.`); }
+      // A refusal is a decision about one batch, not a broken connection, so it does not count toward stopping
       if (e && e.code === "refused") refusedBatches++;
-      failures++;
-      if (failures >= 2) { app.scoring = null; await finishScoring(sid, tier); return say("Claude scoring", "Two batches in a row failed (" + (e.code || "error") + "). Scored candidates are saved; try again later."); }
+      else {
+        failures++; lastErr = e;
+        if (failures >= 2) { await done(); return say("Claude scoring", `Two batches in a row failed (${errText(e)}). ${scored} candidate(s) were scored and saved; try again later.`); }
+      }
     }
     app.scoring.done = Math.min(targets.length, i + 5);
     app.scoring.msg = `Scored ${app.scoring.done} of ${targets.length}`;
     render();
   }
-  app.scoring = null;
-  await finishScoring(sid, tier);
-  if (refusedBatches) say("Claude scoring", `${refusedBatches} batch(es) were declined by Claude and keep heuristic scores.`);
-  else render();
+  await done();
+  const notes = [];
+  if (stopped) notes.push(`Stopped. ${scored} candidate(s) were scored and saved.`);
+  if (refusedBatches) notes.push(`${refusedBatches} batch(es) were declined by Claude and keep heuristic scores.`);
+  if (failures && lastErr) notes.push(`The last batch failed (${errText(lastErr)}) and keeps heuristic scores.`);
+  if (!scored && !notes.length) notes.push("Claude returned no usable scores. Heuristic scores remain.");
+  if (notes.length) say("Claude scoring", notes.join(" ")); else render();
 }
-async function finishScoring(sid, tier) {
+async function finishScoring(sid, tier, count) {
   try { await app.db.doc(`searches/${sid}`).update({ stats: { scorer: `claude (${tier} tier)` } }); } catch {}
-  await audit("search.scored", sid, { tier });
+  await audit("search.scored", sid, { tier, scored: count });
 }
 async function exportCsv(sid) {
   const s = app.searches.find((x) => x.id === sid); if (!s) return;
   const r = s.rubric, list = ranked([...app.cands.values()]);
-  const q = (v) => { v = String(v ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  // Text that a spreadsheet would run as a formula gets a leading apostrophe
+  const q = (v) => { if (typeof v === "number") return String(v); v = String(v ?? ""); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
   const rows = [["rank", "name", "headline", "location", "current_title", "current_company", "linkedin_url", "total", "coverage", "requirement_unknowns",
     ...r.criteria.map((c) => c.id + "_score"), ...r.criteria.map((c) => c.id + "_evidence"), "flags", "scorer", "review", "review_reason", "key"]];
   list.forEach((c, i) => {
     const p = c.profile, cur = (p.positions || []).find(isCurrent) || (p.positions || [])[0] || {};
     const sc = (id) => c.card.scores.find((x) => x.criterion_id === id) || {};
     rows.push([i + 1, p.full_name, p.headline, p.location, cur.title, cur.company, p.linkedin_url, c.total, c.coverage, c.reqUnknown,
-      ...r.criteria.map((x) => sc(x.id).score ?? ""), ...r.criteria.map((x) => (sc(x.id).evidence || []).join(" | ")),
+      ...r.criteria.map((x) => sc(x.id).score ?? ""), ...r.criteria.map((x) => (sc(x.id).evidence || []).map((ev) => { const role = roleRef(ev, p); return role ? "Role: " + roleText(role) : ev; }).join("\n")),
       (c.flags || []).join("; "), c.card.scorer, c.review?.decision || "", c.review?.reason || "", c.key]);
   });
   const csv = rows.map((row) => row.map(q).join(",")).join("\n");
@@ -1102,7 +1206,8 @@ async function exportCsv(sid) {
 function candView(sid, cid) {
   const s = app.searches.find((x) => x.id === sid); watchCandidates(sid);
   const c = app.cands.get(cid);
-  if (!s || !c) return `<p class="muted">Loading candidate</p>`;
+  if (!s) return app.loaded.searches ? notFound("search") : `<p class="muted">Loading candidate</p>`;
+  if (!c) return app.loaded.cands ? notFound("candidate") : `<p class="muted">Loading candidate</p>`;
   const r = s.rubric, p = c.profile, list = ranked([...app.cands.values()]);
   const idx = list.findIndex((x) => x.id === cid), prev = list[idx - 1], next = list[idx + 1];
   let h = `<p class="label"><a href="#search-${esc(sid)}">${esc(s.title)}</a> / Rank ${idx + 1}</p>
@@ -1113,12 +1218,12 @@ function candView(sid, cid) {
     <div class="stat"><div class="k">Unknown requirements</div><div class="v">${c.reqUnknown}</div></div><div class="stat"><div class="k">Scorer</div><div class="v small">${esc(c.card.scorer)}</div></div></div>`;
   if (c.card.summary) h += `<p class="lede">${esc(c.card.summary)}</p>`;
   if ((c.flags || []).length) h += `<h3>Flags for the recruiter</h3><ul class="flags">${c.flags.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;
-  h += `<h2>Scores and evidence</h2><p class="caption">Quotes come from the masked profile the scorer saw and were checked against it.</p>`;
+  h += `<h2>Scores and evidence</h2><p class="caption">Quotes come from the masked profile the scorer saw and were checked against it. Lines marked Role point to a job in the Profile table below.</p>`;
   for (const cr of r.criteria) {
     const x = c.card.scores.find((y) => y.criterion_id === cr.id) || {};
     h += `<div class="crit"><div><div class="name">${esc(cr.name)}</div><div class="meta">${esc(cr.type)} / weight ${esc(cr.weight)}</div>
       <div style="margin-top:8px">${seg(x.score ?? null)}${x.score !== null && x.score !== undefined ? `<span class="mono" style="font-size:12px">${x.score} of 4</span>` : ""}</div></div>
-      <div>${(x.evidence || []).map((q) => `<blockquote>${esc(q)}</blockquote>`).join("")}${x.rationale ? `<p class="caption">${esc(x.rationale)}</p>` : ""}
+      <div>${(x.evidence || []).map((q) => { const role = roleRef(q, p); return role ? `<blockquote class="role"><span class="k">Role</span>${esc(roleText(role))}</blockquote>` : `<blockquote>${esc(q)}</blockquote>`; }).join("")}${x.rationale ? `<p class="caption">${esc(x.rationale)}</p>` : ""}
       ${x.removed_quotes ? `<p class="caption mono">${x.removed_quotes} unverified quote(s) removed</p>` : ""}</div></div>`;
   }
   const rv = c.review;
@@ -1157,21 +1262,28 @@ async function review(sid, cid, decision) {
 }
 async function outreach(sid, cid) {
   const s = app.searches.find((x) => x.id === sid), c = app.cands.get(cid); if (!s || !c) return;
-  const r = s.rubric, out = document.getElementById("or_status");
-  const ev = [...r.criteria].sort((a, b) => b.weight - a.weight).map((cr) => { const x = c.card.scores.find((y) => y.criterion_id === cr.id); return x && x.score && x.evidence.length ? `${cr.name}: ${x.evidence[0]}` : null; }).filter(Boolean).slice(0, 4);
-  let text;
+  const r = s.rubric;
+  // Highest-weight criteria first; a sentence from the profile beats a role reference
+  const ev = [...r.criteria].sort((a, b) => b.weight - a.weight).map((cr) => {
+    const x = c.card.scores.find((y) => y.criterion_id === cr.id); if (!(x && x.score && (x.evidence || []).length)) return null;
+    const quote = x.evidence.find((q) => !roleRef(q, c.profile)); if (quote) return { name: cr.name, quote };
+    const role = roleRef(x.evidence[0], c.profile); return { name: cr.name, role: `${role.title}${role.company ? " at " + role.company : ""}` };
+  }).filter(Boolean).slice(0, 4);
+  let text, failed = "";
   if (app.sample) {
-    out.textContent = "Thinking";
+    setStatus("or_status", "Thinking");
     try {
-      const res = await app.sample(`${OUTREACH_RULES}\n\nROLE: ${r.title}\nROLE PITCH: ${r.role_pitch || r.summary}\nVERIFIED EVIDENCE FROM THE CANDIDATE'S PROFILE:\n${ev.map((e) => "- " + e).join("\n")}\n\nDraft the message.`, { cache: false });
-      text = res.text.trim().replace(/—/g, ", ");
-    } catch (e) { if (e && e.code === "cancelled") return; out.textContent = "Claude did not draft it (" + (e.code || "error") + "). A template draft is shown."; }
+      const res = await app.sample(`${OUTREACH_RULES}\n\nROLE: ${r.title}\nROLE PITCH: ${r.role_pitch || r.summary}\nVERIFIED EVIDENCE FROM THE CANDIDATE'S PROFILE:\n${ev.map((e) => `- ${e.name}: ${e.quote || "role as " + e.role}`).join("\n")}\n\nDraft the message.`, { cache: false });
+      text = res.text.trim().replace(/(\d)\s*–\s*(\d)/g, "$1-$2").replace(/\s*[—–]\s*/g, ", ");
+    } catch (e) { if (e && e.code === "cancelled") return setStatus("or_status", ""); failed = `Claude did not draft it (${e.code || "error"}${e.message ? ": " + e.message : ""}). A template draft is shown.`; }
   }
   if (!text) {
-    const quote = ev.length ? ev[0].split(": ").slice(1).join(": ").trim().replace(/\.$/, "") : "";
-    text = `Hi [First name],\n\n${quote ? `Your background caught my attention, in particular this from your profile: "${quote}."` : "Your background caught my attention."} ${r.role_pitch || `Astrion is hiring a ${r.title}.`}\n\nWould you be open to a 20-minute call in the next week or two to hear more?\n\n[Recruiter name]`;
+    const q = ev.find((e) => e.quote), role = ev.find((e) => e.role);
+    const quote = q ? q.quote.trim().replace(/\.$/, "") : "";
+    const hook = quote ? `Your background caught my attention, in particular this from your profile: "${quote}."` : role ? `Your work as ${role.role} caught my attention.` : "Your background caught my attention.";
+    text = `Hi [First name],\n\n${hook} ${r.role_pitch || `Astrion is hiring a ${r.title}.`}\n\nWould you be open to a 20-minute call in the next week or two to hear more?\n\n[Recruiter name]`;
   }
-  try { await app.db.doc(`searches/${sid}/candidates/${cid}`).update({ outreach: text }); await audit("outreach.drafted", sid, { candidate: cid }); }
+  try { await app.db.doc(`searches/${sid}/candidates/${cid}`).update({ outreach: text }); await audit("outreach.drafted", sid, { candidate: cid }); setStatus("or_status", failed); }
   catch (e) { say("Outreach", "The draft was not saved (" + (e.code || "error") + ")."); }
 }
 
@@ -1206,7 +1318,7 @@ async function saveRubricDraft(obj, origin) {
 }
 function rubricView(id) {
   const row = app.rubrics.find((x) => x.id === id);
-  if (!row) return `<p class="muted">Loading rubric</p>`;
+  if (!row) return app.loaded.rubrics ? notFound("rubric") : `<p class="muted">Loading rubric</p>`;
   const r = row.rubric;
   let h = `<p class="label"><a href="#rubrics">Rubrics</a> / ${esc(row.slug)} / v${esc(row.version)}</p>
   <div class="head"><div><h1>${esc(row.title)}</h1><p><span class="tag ${row.status === "approved" ? "solid" : ""}">${esc(row.status)}</span>
@@ -1246,10 +1358,12 @@ function governanceView() {
     <div class="field"><label for="dnt_yaml">Employers (YAML)</label><textarea id="dnt_yaml" class="code" style="min-height:200px" ${app.canWrite === false ? "readonly" : ""}>${esc(dntYaml)}</textarea>
     <p class="hint">Each entry: name, aliases, reason, lookback_months. ${app.canWrite === false ? "You have view-only access, so you cannot change this list." : ""}</p></div>
     ${app.canWrite !== false ? `<button class="btn" data-act="saveDnt">Save list</button> <span class="caption" id="dnt_status"></span>` : ""}</section></div>
-  <h2>Retention</h2><p>Delete searches you no longer need, including their candidate records. Storage holds about 25,000 records in total.</p>
+  <h2>Retention</h2><p>Delete searches you no longer need, including their candidate records. ${HOST === "github"
+    ? `This browser holds about ${STORAGE_CANDIDATES.toLocaleString("en-US")} candidates across all searches; ${app.searches.reduce((a, s) => a + (s.stats?.kept || 0) + (s.stats?.excluded || 0), 0).toLocaleString("en-US")} are stored now. Export slates you want to keep, then delete them.`
+    : "Storage holds about 25,000 records in total."}</p>
   <div class="table-wrap"><table><thead><tr><th>Search</th><th>Created</th><th class="num">Records</th><th></th></tr></thead><tbody>
   ${app.searches.map((s) => `<tr><td>${esc(s.title)}</td><td class="mono">${esc(fmtDate(s.createdAt))}</td><td class="num">${esc((s.stats?.kept || 0) + (s.stats?.excluded || 0))}</td>
-    <td>${app.canWrite !== false ? `<button class="btn btn-quiet" data-act="delSearch" data-sid="${esc(s.id)}" style="min-height:28px">Delete</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No searches.</td></tr>`}
+    <td>${app.canWrite !== false ? `<button class="btn btn-quiet" data-act="delSearch" data-sid="${esc(s.id)}" style="min-height:28px">${pendingDelete.has(s.id) ? "Confirm delete" : "Delete"}</button>` : ""}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No searches.</td></tr>`}
   </tbody></table></div>
   <h2>Audit log</h2><div id="auditBox"><p class="muted">Loading</p></div>`;
 }
@@ -1398,7 +1512,7 @@ function helpView() {
   <div class="notice quiet"><b>Ground rules</b>Use only data from licensed tools you export yourself, or Astrion's own records. Never scrape LinkedIn, Indeed or other sites. You decide who to contact; the app never contacts anyone.</div>
 
   <h2>Quick start</h2>
-  <p>Select <b>Try it with sample data</b>. The app approves the Software Factory Lead rubric, loads ten fictional candidates and opens the ranked slate. Then open a candidate to see the scores and evidence, and come back to the steps below for your own searches.</p>
+  <p>Select <b>Try it with sample data</b>. The app approves the Software Factory Lead rubric, loads ten fictional candidates and opens the ranked slate. If a sample search already exists, it opens that one. Then open a candidate to see the scores and evidence, and come back to the steps below for your own searches.</p>
   <p><button class="btn btn-primary" data-act="demo">Try it with sample data</button></p>
 
   <h2>Before you start</h2>
@@ -1427,20 +1541,20 @@ function helpView() {
     <tr><td>Title, Current Title, Job Title</td><td>Current role</td></tr>
     <tr><td>Company, Current Company, Employer</td><td>Current employer</td></tr>
     <tr><td>Headline, Summary, About</td><td>Profile text</td></tr>
-    <tr><td>Experience, Work History, Resume</td><td>Description of experience</td></tr>
+    <tr><td>Experience, Work History, Resume</td><td>Description of experience. Added to the first job, or to the summary when the file has no job columns</td></tr>
     <tr><td>Location, LinkedIn URL, Profile URL, Email</td><td>Contact and matching duplicates</td></tr>
     <tr><td>Clearance, Security Clearance</td><td>Self-reported clearance</td></tr>
     <tr><td>Skills, Top Skills (separated by semicolons)</td><td>Skills</td></tr>
     <tr><td>position_1_title, position_1_company, position_1_start, position_1_end, position_1_description (2, 3 and so on)</td><td>Full job history</td></tr>
   </tbody></table></div>
-  <p>The sample file has ten fictional candidates in this format. Use it to try the app, or as a template for your own exports.</p>
+  <p>If none of a file's column names are recognized, the app says so and creates nothing. The sample file has ten fictional candidates in this format. Use it to try the app, or as a template for your own exports.</p>
   <p><button class="btn" type="button" data-act="sampleCsv">Download sample CSV</button> <span class="caption" id="sample_status"></span></p>
 
   <h2>3. Create the search</h2>
   <ol>
     <li>On <a href="#new-search">New search</a>, pick the approved rubric, name the search and choose one or more files.</li>
     <li>Select <b>Create search</b>. The app merges duplicates across files, removes anyone on the do-not-target list or outside the rubric's locations, and scores everyone from the signal dictionary right away.</li>
-  </ol>
+  </ol>${gh ? `<p class="caption">This browser holds about ${STORAGE_CANDIDATES.toLocaleString("en-US")} candidates across all searches. If a file does not fit, nothing is saved and a message says so.</p>` : ""}
 
   <h2>4. Score with Claude</h2>
   <ol>
@@ -1448,7 +1562,7 @@ function helpView() {
     <li>Select <b>Score with Claude</b>. Candidates go five at a time; each batch can take up to a minute. Select Stop at any time; finished scores are kept.</li>
     <li><b>Score with Claude</b> scores only candidates that do not have a Claude score yet. <b>Rescore top</b> scores the top candidates again.</li>
   </ol>
-  <p class="caption">Claude sees each profile without name, contact details, location, schools or graduation years. Every quote it gives is checked against the profile; quotes that are not found are removed and that criterion shows as UNK.</p>
+  <p class="caption">Claude sees each profile without name, contact details, location, schools or graduation years. Every quote it gives is checked against the profile; quotes that are not found are removed and that criterion shows as UNK. If the key is rejected or a batch fails, a message at the top says why and those candidates keep their heuristic scores.</p>
 
   <h2>5. Read the slate</h2>
   <div class="table-wrap"><table><thead><tr><th>Item</th><th>Meaning</th></tr></thead><tbody>
@@ -1464,7 +1578,7 @@ function helpView() {
   <h2>6. Review candidates</h2>
   <ol>
     <li>Select <b>Review next</b>, or a candidate's name.</li>
-    <li>Read the summary, the flags and the quoted evidence for each criterion. The full profile is at the bottom.</li>
+    <li>Read the summary, the flags and the evidence for each criterion. Solid lines are quotes from the profile; dashed lines marked Role point to a job in the Profile table at the bottom.</li>
     <li>Choose a reason and select <b>Approve</b> or <b>Reject</b>. Add a note if useful. The app moves to the next unreviewed candidate.</li>
   </ol>
   <p class="caption">Use the reason "Evidence or score is wrong" whenever a quote or score does not hold up. Those reviews are how the scoring gets better.</p>
@@ -1476,12 +1590,12 @@ function helpView() {
   </ol>
 
   <h2>8. Export and share</h2>
-  <p>Select <b>Export CSV</b> on the search page. The file has the ranking, every criterion score and quote, flags and review decisions.${gh ? " This is how you share results from the GitHub version." : ""}</p>
+  <p>Select <b>Export CSV</b> on the search page. The file has the ranking, every criterion score and quote (one per line in the cell; job references start with "Role:"), flags and review decisions.${gh ? " This is how you share results from the GitHub version." : ""}</p>
 
   <h2>Governance</h2>
   <ul>
     <li><b>Do-not-target list.</b> Companies whose current employees you must not recruit (from teaming agreements, subcontracts and NDAs). Enter each as a YAML entry with name, aliases, reason and lookback_months, then select Save list. Candidates who left one of these companies within lookback_months are flagged.</li>
-    <li><b>Delete searches</b> you no longer need. Select Delete, then Confirm delete.</li>
+    <li><b>Delete searches</b> you no longer need. Select Delete, then Confirm delete. Leaving the page cancels a pending delete.</li>
     <li><b>Audit log</b> lists rubric approvals, searches, scoring runs, reviews, outreach drafts and exports.</li>
   </ul>
 
@@ -1497,6 +1611,9 @@ function helpView() {
     <tr><td>A file will not upload</td><td>Use .csv, .json or .jsonl, with column names in the first row. From Excel, choose File, Save As, "CSV UTF-8"</td></tr>
     <tr><td>Create search does nothing</td><td>Choose a file with the Candidate files button first, then select Create search. Any problem shows in a message at the top of the page</td></tr>
     <tr><td>The page stays on Loading, or says the app did not start</td><td>Use a current version of Chrome, Edge, Firefox or Safari. If it still fails, send the message on screen to the app owner</td></tr>
+    <tr><td>"This search is not here"</td><td>The search was deleted, or it lives in someone else's browser. Ask them for an Export CSV</td></tr>
+    <tr><td>"Storage is full"</td><td>Delete old searches under Governance, or split the file, then create the search again</td></tr>
+    <tr><td>"None of the columns were recognized"</td><td>Rename the columns to the names in step 2 and upload again</td></tr>
     <tr><td>A candidate is missing from the slate</td><td>Check Excluded before scoring on the search page, and whether two records were merged as one person</td></tr>
   </tbody></table></div>
   <p class="caption">The legal rules behind these steps are on the <a href="#legal">Legal</a> page.</p>
@@ -1508,7 +1625,7 @@ async function hydrate(route) {
   if (route === "new-search") {
     const sel = document.getElementById("ns_rubric"), plan = document.getElementById("ns_plan");
     const show = () => { const r = app.rubrics.find((x) => x.id === sel.value); if (r) plan.innerHTML = planHtml(r.rubric); };
-    if (sel) { sel.onchange = () => { const r = app.rubrics.find((x) => x.id === sel.value); if (r) document.getElementById("ns_title").value = r.title + " search"; show(); }; show(); }
+    if (sel) { sel.onchange = () => { const r = app.rubrics.find((x) => x.id === sel.value); if (r) { const t = document.getElementById("ns_title"); t.value = r.title + " search"; t.dataset.dirty = "1"; } show(); }; show(); }
     const f = document.getElementById("newSearchForm"); if (f) f.onsubmit = (e) => { e.preventDefault(); createSearch(f); };
   }
   if (route === "governance") loadAudit();
@@ -1565,14 +1682,13 @@ document.addEventListener("click", async (ev) => {
     catch (e) { say("Rubric", "Not saved: " + (e.message || e.code)); } return;
   }
   if (act === "pasteYaml") {
-    const st = document.getElementById("py_status");
     try { const id = await saveRubricDraft(jsyaml.load(document.getElementById("yaml_new").value), "manual"); location.hash = "#rubric-" + id; }
-    catch (e) { st.textContent = "Not saved: " + (e.message || e.code); } return;
+    catch (e) { setStatus("py_status", "Not saved: " + (e.message || e.code)); } return;
   }
   if (act === "intake") {
-    const st = document.getElementById("in_status"), text = document.getElementById("in_text").value.trim();
-    if (!text) return (st.textContent = "Paste a hiring request first.");
-    t.disabled = true; st.textContent = "Claude is drafting. This can take a minute.";
+    const text = document.getElementById("in_text").value.trim();
+    if (!text) return setStatus("in_status", "Paste a hiring request first.");
+    t.disabled = true; setStatus("in_status", "Claude is drafting. This can take a minute.");
     try {
       const d = await app.sample.json(intakePrompt(text), { modelTier: "default", cache: false });
       const crit = (d.criteria || []).map((c, i) => ({ ...c, id: (String(c.id || c.name || "c" + i).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "c" + i).replace(/^(\d)/, "c_$1"),
@@ -1582,51 +1698,59 @@ document.addEventListener("click", async (ev) => {
         title: d.title || "Untitled role", summary: d.summary || "", role_pitch: d.role_pitch || "", target_titles: d.target_titles || [], target_companies: d.target_companies || [],
         gates: { locations: d.locations || [] }, criteria: crit };
       const id = await saveRubricDraft(obj, "intake"); location.hash = "#rubric-" + id;
-    } catch (e) { st.textContent = "Not drafted: " + (e.message || e.code || "error"); }
+    } catch (e) { setStatus("in_status", "Not drafted: " + (e.message || e.code || "error")); }
     finally { t.disabled = false; } return;
   }
   if (act === "saveRubric") {
-    const row = app.rubrics.find((x) => x.id === t.dataset.id), st = document.getElementById("re_status");
-    let obj; try { obj = jsyaml.load(document.getElementById("yaml_edit").value); } catch (e) { return (st.textContent = "Not saved: " + e.message); }
-    const errs = validateRubric(obj); if (errs.length) return (st.textContent = "Not saved: " + errs.join(" "));
+    const row = app.rubrics.find((x) => x.id === t.dataset.id);
     try {
+      let obj; try { obj = jsyaml.load(document.getElementById("yaml_edit").value); } catch (e) { return setStatus("re_status", "Not saved: " + e.message); }
+      const errs = validateRubric(obj); if (errs.length) return setStatus("re_status", "Not saved: " + errs.join(" "));
       if (row.status === "approved") { const id = await saveRubricDraft(obj, "edit"); location.hash = "#rubric-" + id; return; }
       const r = normalizeRubric(obj); r.version = row.version;
-      await app.db.doc(`rubrics/${row.id}`).update({ title: r.title, rubric: r, yaml: document.getElementById("yaml_edit").value });
-      await audit("rubric.edited", null, { rubric: row.slug, version: row.version }); st.textContent = "Saved.";
-    } catch (e) { st.textContent = "Not saved (" + (e.code || e.message) + ")."; } return;
+      const yamlText = document.getElementById("yaml_edit").value;
+      await app.db.doc(`rubrics/${row.id}`).update({ title: r.title, rubric: r, yaml: yamlText });
+      await audit("rubric.edited", null, { rubric: row.slug, version: row.version });
+      // The saved text is now the stored text, so later data refreshes may redraw the box
+      const box = document.getElementById("yaml_edit"); if (box) delete box.dataset.dirty;
+      setStatus("re_status", "Saved.");
+    } catch (e) { setStatus("re_status", "Not saved (" + (e.code || e.message) + ")."); } return;
   }
   if (act === "approve") {
-    const st = document.getElementById("ap_status"), who = document.getElementById("approver").value.trim();
-    if (!who) return (st.textContent = "Enter the approver's name.");
+    const who = document.getElementById("approver").value.trim();
+    if (!who) return setStatus("ap_status", "Enter the approver's name.");
     try { await app.db.doc(`rubrics/${t.dataset.id}`).update({ status: "approved", approvedBy: who.slice(0, 120), approvedById: app.me?.id || null, approvedAt: nowIso() });
       const row = app.rubrics.find((x) => x.id === t.dataset.id); await audit("rubric.approved", null, { rubric: row?.slug, version: row?.version, approver: who }); }
-    catch (e) { st.textContent = "Not approved (" + (e.code || e.message) + ")."; } return;
+    catch (e) { setStatus("ap_status", "Not approved (" + (e.code || e.message) + ")."); } return;
   }
   if (act === "saveKey" || act === "clearKey") {
-    const v = act === "clearKey" ? "" : document.getElementById("api_key").value.trim();
-    if (act === "saveKey" && !v) { document.getElementById("key_status").textContent = "Enter a key first."; return; }
+    const box = document.getElementById("api_key"), v = act === "clearKey" ? "" : box.value.trim();
+    if (act === "saveKey" && !v) return setStatus("key_status", "Enter a key first.");
     storeKey(v, act === "saveKey" && document.getElementById("api_remember").checked);
-    app.sample = localSample(); sdkCache = null;
+    box.value = ""; // the key never stays on screen
+    app.sample = localSample(); sdkCache = null; delete app.statusText.key_status;
     say("Claude access", v ? "Key saved in this browser. Claude scoring is on." : "Key removed. Claude scoring is off.");
     return;
   }
   if (act === "saveDnt") {
-    const st = document.getElementById("dnt_status");
     try { const o = jsyaml.load(document.getElementById("dnt_yaml").value) || {}; const employers = (o.employers || []).filter((e) => e && e.name).map((e) => ({ name: String(e.name),
         aliases: (e.aliases || []).map(String), reason: String(e.reason || "Non-solicitation obligation"), lookback_months: parseInt(e.lookback_months, 10) || 0 }));
-      await app.db.doc("config/dnt").set({ employers, updatedBy: app.me?.id || null, updatedAt: nowIso() }); await audit("dnt.updated", null, { entries: employers.length }); st.textContent = "Saved.";
-    } catch (e) { st.textContent = "Not saved: " + (e.message || e.code); } return;
+      await app.db.doc("config/dnt").set({ employers, updatedBy: app.me?.id || null, updatedAt: nowIso() }); await audit("dnt.updated", null, { entries: employers.length });
+      const box = document.getElementById("dnt_yaml"); if (box) delete box.dataset.dirty; // show the list as stored
+      setStatus("dnt_status", `Saved ${employers.length} ${employers.length === 1 ? "entry" : "entries"}.`);
+    } catch (e) { setStatus("dnt_status", "Not saved: " + (e.message || e.code)); } return;
   }
   if (act === "delSearch") {
     const sid = t.dataset.sid;
     if (!pendingDelete.has(sid)) { pendingDelete.add(sid); t.textContent = "Confirm delete"; return; }
-    t.disabled = true; t.textContent = "Deleting";
+    pendingDelete.delete(sid); t.disabled = true; t.textContent = "Deleting";
     try { const snap = await app.db.collection(`searches/${sid}/candidates`).get(); for (const d of snap.docs) await app.db.doc(`searches/${sid}/candidates/${d.id}`).delete();
-      await app.db.doc(`searches/${sid}`).delete(); await audit("search.deleted", sid, { records: snap.size }); }
+      await app.db.doc(`searches/${sid}`).delete(); await audit("search.deleted", sid, { records: snap.size });
+      if (app.candSearch === sid) { if (app.candSub) app.candSub(); app.candSub = null; app.candSearch = null; app.cands = new Map(); }
+      app.searches = app.searches.filter((x) => x.id !== sid); render(); }
     catch (e) { say("Retention", "Delete failed (" + (e.code || "error") + ")."); } return;
   }
 });
-window.addEventListener("hashchange", () => { app.flash = null; render(); window.scrollTo(0, 0); });
+window.addEventListener("hashchange", () => { app.flash = null; app.statusText = {}; pendingDelete.clear(); render(); window.scrollTo(0, 0); });
 init();
 </script>

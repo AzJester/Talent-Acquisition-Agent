@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -63,3 +66,21 @@ def test_github_site_loads_no_third_party_scripts():
     assert 'src="vendor/js-yaml.min.js"' in page and 'src="vendor/papaparse.min.js"' in page
     # The startup watchdog runs before the main script and the main script marks itself started
     assert page.index("App did not start") < page.index("window.__taaStarted = true")
+
+
+def test_browser_rounding_matches_python():
+    """The page's totals must print exactly what src/taa/pipeline/rank.py prints, ties included."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    html = (ROOT / "standalone" / "app.html").read_text(encoding="utf-8")
+    fn = re.search(r"function pyRound\(x, d\) \{.*?\n\}", html, re.DOTALL).group(0)
+    values = [(100 * (p4 / 4) / tw, 1) for tw in range(1, 121) for p4 in range(tw * 4 + 1)]
+    values += [((p4 / 4) / tw, 3) for tw in range(1, 121) for p4 in range(tw * 4 + 1)]
+    values.append((21.25, 1))  # Alex Brennan in the sample data: Python prints 21.2
+    script = fn + "\nconst v = JSON.parse(require('fs').readFileSync(0, 'utf8'));\nprocess.stdout.write(JSON.stringify(v.map(([x, d]) => pyRound(x, d))));"
+    out = subprocess.run([node, "-e", script], input=json.dumps(values), capture_output=True, text=True, check=True)
+    got = json.loads(out.stdout)
+    bad = [(x, d, g) for (x, d), g in zip(values, got) if round(x, d) != g]
+    assert not bad, bad[:5]
+    assert got[-1] == 21.2
