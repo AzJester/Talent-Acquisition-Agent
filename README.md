@@ -6,9 +6,11 @@ AI-assisted sourcing and ranking tool for Astrion Talent Acquisition. It takes a
 
 **Open the app:** https://azjester.github.io/Talent-Acquisition-Agent/ (no sign-in needed; data stays in your browser; Claude scoring is optional with an Anthropic API key entered under Governance).
 
+**Walkthrough video:** https://claude.ai/artifact/P1jpqB5wo3iKajND7t7sZc (about 2 minutes 40 seconds, no sound; every step on the real screens). It is hosted on claude.ai, so it opens for people the owner has shared it with there. The app's Help and Searches pages link to it.
+
 **Sample candidate file:** [data/samples/sample_candidates.csv](data/samples/sample_candidates.csv) (fictional people; also downloadable from the app's New search and Help pages).
 
-How each version is deployed, who can see what, how to change it, and the AWS self-hosting path are in [docs/BUILD_NOTES.md](docs/BUILD_NOTES.md). The legal concerns and how to search LinkedIn and other sites lawfully are in `docs/Legal_and_Sourcing_Guide.docx`. Instructions for users are in `docs/User_Guide.docx` and on the app's Help page.
+How each version is deployed, who can see what, how to change it, and the AWS self-hosting path are in [docs/BUILD_NOTES.md](docs/BUILD_NOTES.md). The legal concerns and how to search LinkedIn and other sites lawfully are in `docs/Legal_and_Sourcing_Guide.docx`. Instructions for users are in `docs/User_Guide.docx` and on the app's Help page. What changed and when is in the [change log](docs/changelog/README.md).
 
 The repository holds the same tool in two forms:
 
