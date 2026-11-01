@@ -143,8 +143,9 @@ ul.flags li { padding:8px 0; border-bottom:1px solid var(--hair); }
 @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
 </style>
 <script>
-// Apply a saved theme before the page draws; with no saved choice the system setting applies
-try { const t = localStorage.getItem("taa:theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+// Apply the saved theme before the page draws; with no saved choice the app opens in dark mode
+(function () { let t = null; try { t = localStorage.getItem("taa:theme"); } catch (e) { /* storage blocked: use the default */ }
+  document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark"); })();
 </script>
 
 <header class="nav">
@@ -183,9 +184,11 @@ window.setTimeout(function () {
 window.__taaStarted = true;
 const SIGNALS = __SIGNALS_JSON__;
 const TEMPLATES = __TEMPLATES_JSON__;
-// Fictional candidates in every column the importer recognizes (built from data/samples by standalone/build.py)
+// Fictional candidates in the layout the importer reads (built from data/samples by standalone/build.py)
 const SAMPLE_CSV = __SAMPLE_CSV__;
-const APP_VERSION = "1.2.1-beta";
+const APP_VERSION = "1.2.2-beta";
+// The walkthrough film (Motion artifact on claude.ai): about 2 minutes 40 seconds, no sound
+const FILM_URL = "https://claude.ai/artifact/P1jpqB5wo3iKajND7t7sZc";
 // "claude" when published as a claude.ai artifact; "github" for the GitHub Pages build (set by standalone/build.py)
 const HOST = window.TAA_HOST === "github" ? "github" : "claude";
 
@@ -937,7 +940,7 @@ function searchesView() {
   else if (!app.sample) h += `<div class="notice quiet"><b>Heuristic mode</b>Claude scoring is unavailable in this view, so scores come from the signal dictionary only.</div>`;
   if (!app.searches.length) return h + `<div class="panel"><h3>No searches yet</h3>
     <p>New here? Load ten fictional candidates and the Software Factory Lead rubric in one click, and see a finished slate.</p>
-    <p><button class="btn btn-primary" data-act="demo">Try it with sample data</button></p>
+    <p><button class="btn btn-primary" data-act="demo">Try it with sample data</button> <a class="btn" href="${FILM_URL}" target="_blank" rel="noopener noreferrer">Watch the walkthrough video</a></p>
     <p class="caption">For a real search: approve a rubric under Rubrics, export candidates from LinkedIn Recruiter, ClearanceJobs or the ATS as CSV, then select New search.</p></div>`;
   h += `<div class="table-wrap"><table><thead><tr><th>Search</th><th>Rubric</th><th>Status</th><th class="num">Candidates</th><th class="num">Excluded</th><th class="num">Approved</th><th>Scorer</th><th>Created</th></tr></thead><tbody>`;
   for (const s of app.searches) {
@@ -1511,13 +1514,15 @@ function helpView() {
   <p class="lede">The app ranks candidates against a hiring rubric. You bring candidate lists exported from licensed tools; the app scores each person on each criterion, quotes the profile behind every score, and gives you a ranked slate to review.</p>
   <div class="notice quiet"><b>Ground rules</b>Use only data from licensed tools you export yourself, or Astrion's own records. Never scrape LinkedIn, Indeed or other sites. You decide who to contact; the app never contacts anyone.</div>
 
+  <div class="notice quiet"><b>Video</b>New to the app? <a href="${FILM_URL}" target="_blank" rel="noopener noreferrer">Watch the walkthrough video</a> (about 2 minutes 40 seconds, no sound). It shows every step below on the real screens.</div>
+
   <h2>Quick start</h2>
   <p>Select <b>Try it with sample data</b>. The app approves the Software Factory Lead rubric, loads ten fictional candidates and opens the ranked slate. If a sample search already exists, it opens that one. Then open a candidate to see the scores and evidence, and come back to the steps below for your own searches.</p>
   <p><button class="btn btn-primary" data-act="demo">Try it with sample data</button></p>
 
   <h2>Before you start</h2>
   <ol>${setup}
-    <li><b>Pick light or dark mode</b> with the button at the top right. The app remembers your choice.</li>
+    <li><b>Light or dark mode.</b> The app opens in dark mode. The button at the top right switches it, and the app remembers your choice.</li>
   </ol>
 
   <h2>1. Set up a rubric</h2>
