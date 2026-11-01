@@ -41,8 +41,8 @@ MAX_POSITIONS = 3
 
 
 def write_sample_csv() -> str:
-    """Write the downloadable sample from the synthetic profiles. It uses every column the importer
-    recognizes, so it also serves as a template."""
+    """Write the downloadable sample from the synthetic profiles, in the position_N layout the importer
+    reads, so it also serves as a template."""
     data = json.loads((ROOT / "data" / "samples" / "synthetic_candidates.json").read_text(encoding="utf-8"))
     header = ["First Name", "Last Name", "Headline", "Location", "LinkedIn URL", "Email", "Clearance", "Skills", "Summary"]
     for n in range(1, MAX_POSITIONS + 1):

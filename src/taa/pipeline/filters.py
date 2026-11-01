@@ -66,7 +66,7 @@ def apply_filters(resolved: dict[str, Profile], rubric: Rubric, dnt: DoNotTarget
         reason = None
         for entry in dnt.employers:
             if any(employer_matches(c, entry.names) for c in p.current_employers()):
-                reason = f"Do not target: current employer {entry.name}. {entry.reason}"
+                reason = f"Do not target: current employer {entry.name.rstrip('.')}. {entry.reason}"
                 break
             if entry.lookback_months:
                 for pos in p.positions:
