@@ -87,6 +87,7 @@ pre { font:400 12.5px/1.5 var(--font-mono); background:var(--quote); border:1px 
 .btn-primary { background:var(--ion); color:#0B0D10; border-color:var(--ion); }
 .btn-primary:hover { background:var(--flare); border-color:var(--flare); }
 .btn-quiet { border-color:var(--hair); }
+.btn-row { display:flex; flex-wrap:wrap; column-gap:4px; row-gap:8px; }
 .btn[disabled] { opacity:.45; cursor:not-allowed; }
 
 label { display:block; font:500 11px/1.3 var(--font-mono); letter-spacing:.18em; text-transform:uppercase; color:var(--muted); margin:0 0 6px; }
@@ -193,9 +194,11 @@ const SIGNALS = __SIGNALS_JSON__;
 const TEMPLATES = __TEMPLATES_JSON__;
 // Fictional candidates in the layout the importer reads (built from data/samples by standalone/build.py)
 const SAMPLE_CSV = __SAMPLE_CSV__;
-const APP_VERSION = "1.2.4-beta";
+const APP_VERSION = "1.2.5-beta";
 // The walkthrough film (Motion artifact on claude.ai): about 2 minutes 40 seconds, no sound
 const FILM_URL = "https://claude.ai/artifact/P1jpqB5wo3iKajND7t7sZc";
+// The same film as an MP4 file on the GitHub site, for download (rendered from the film; see docs/BUILD_NOTES.md)
+const FILM_MP4 = "docs/Talent_Acquisition_Agent_Walkthrough.mp4";
 // "claude" when published as a claude.ai artifact; "github" for the GitHub Pages build (set by standalone/build.py)
 const HOST = window.TAA_HOST === "github" ? "github" : "claude";
 
@@ -1073,7 +1076,7 @@ function searchesView() {
   else if (!app.sample) h += `<div class="notice quiet"><b>Heuristic mode</b>Claude scoring is unavailable in this view, so scores come from the signal dictionary only.</div>`;
   if (!app.searches.length) return h + `<div class="panel"><h3>No searches yet</h3>
     <p>New here? Load ten fictional candidates and the Software Factory Lead rubric in one click, and see a finished slate.</p>
-    <p><button class="btn btn-primary" data-act="demo">Try it with sample data</button> <a class="btn" href="${FILM_URL}" target="_blank" rel="noopener noreferrer">Watch the walkthrough video</a></p>
+    <p class="btn-row"><button class="btn btn-primary" data-act="demo">Try it with sample data</button> <a class="btn" href="${FILM_URL}" target="_blank" rel="noopener noreferrer">Watch the walkthrough video</a>${HOST === "github" ? ` <a class="btn" href="${FILM_MP4}" download>Download the video (MP4)</a>` : ""}</p>
     <p class="caption">For a real search: approve a rubric under Rubrics, export candidates from LinkedIn Recruiter, ClearanceJobs or the ATS as CSV, then select New search.</p></div>`;
   h += `<div class="table-wrap"><table><thead><tr><th>Search</th><th>Rubric</th><th>Status</th><th class="num">Candidates</th><th class="num">Excluded</th><th class="num">Approved</th><th>Scorer</th><th>Created</th></tr></thead><tbody>`;
   for (const s of app.searches) {
@@ -1802,7 +1805,7 @@ function helpView() {
   <p class="lede">The app ranks candidates against a hiring rubric. You bring candidate lists exported from licensed tools; the app scores each person on each criterion, quotes the profile behind every score, and gives you a ranked slate to review.</p>
   <div class="notice quiet"><b>Ground rules</b>Use only data from licensed tools you export yourself, or Astrion's own records. Never scrape LinkedIn, Indeed or other sites. You decide who to contact; the app never contacts anyone.</div>
 
-  <div class="notice quiet"><b>Video</b>New to the app? <a href="${FILM_URL}" target="_blank" rel="noopener noreferrer">Watch the walkthrough video</a> (about 2 minutes 40 seconds, no sound). It shows every step below on the real screens.</div>
+  <div class="notice quiet"><b>Video</b>New to the app? <a href="${FILM_URL}" target="_blank" rel="noopener noreferrer">Watch the walkthrough video</a> (about 2 minutes 40 seconds, no sound)${HOST === "github" ? ` or <a href="${FILM_MP4}" download>download it (MP4)</a>` : ""}. It shows every step below on the real screens.</div>
 
   <h2>Quick start</h2>
   <p>Select <b>Try it with sample data</b>. The app loads a sample copy of the Software Factory Lead rubric (marked demo, not signed off) and ten fictional candidates, and opens the ranked slate. If a sample search already exists, it opens that one. Then open a candidate to see the scores and evidence, and come back to the steps below for your own searches.</p>
@@ -1898,7 +1901,8 @@ function helpView() {
   <div class="table-wrap"><table><thead><tr><th>Problem</th><th>What to do</th></tr></thead><tbody>
     ${gh ? `<tr><td>No Score with Claude button, or "Claude scoring is off"</td><td>Add an Anthropic API key under Governance</td></tr>
     <tr><td>"The Anthropic API key was rejected"</td><td>Check the key in console.anthropic.com and save it again</td></tr>
-    <tr><td>My searches are gone</td><td>Data lives in one browser on one computer. Use the same browser, and do not clear site data</td></tr>` :
+    <tr><td>My searches are gone</td><td>Data lives in one browser on one computer. Use the same browser, and do not clear site data</td></tr>
+    <tr><td>The video link asks me to sign in</td><td>Download the MP4 instead (Video note at the top of this page, or the button below) and play it in any video player</td></tr>` :
     `<tr><td>No Score with Claude button</td><td>Claude is not available in this view, or you declined the permission prompt. Reload and allow it</td></tr>
     <tr><td>A colleague sees an empty app</td><td>Share the app with them from the Share menu, and check they are signed in to claude.ai</td></tr>`}
     <tr><td>"Usage limit or rate limit was reached"</td><td>Wait a while, then select Score with Claude again. Finished scores are kept</td></tr>
@@ -1912,7 +1916,8 @@ function helpView() {
     <tr><td>A candidate is missing from the slate</td><td>Check Excluded before scoring on the search page, and whether two records were merged as one person</td></tr>
   </tbody></table></div>
   <p class="caption">The legal rules behind these steps are on the <a href="#legal">Legal</a> page.</p>
-  ${docLink("User_Guide.docx", "Download the user guide (Word)")}`;
+  ${docLink("User_Guide.docx", "Download the user guide (Word)")}
+  ${docLink("Talent_Acquisition_Agent_Walkthrough.mp4", "Download the walkthrough video (MP4)")}`;
 }
 
 // ---- after-render wiring that needs the DOM

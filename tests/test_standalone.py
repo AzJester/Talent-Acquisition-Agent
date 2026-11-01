@@ -51,12 +51,17 @@ def test_sample_csv_imports_like_the_json_sample(rubric, signals, settings):
     assert (ROOT / "site" / "sample_candidates.csv").read_text(encoding="utf-8") == csv_path.read_text(encoding="utf-8")
 
 
-def test_site_ships_word_guides():
+def test_site_ships_word_guides_and_video():
     subprocess.run([sys.executable, str(ROOT / "standalone" / "build.py")], check=True, capture_output=True)
-    for name in ("Legal_and_Sourcing_Guide.docx", "User_Guide.docx"):
+    for name in ("Legal_and_Sourcing_Guide.docx", "User_Guide.docx", "Talent_Acquisition_Agent_Walkthrough.mp4"):
         assert (ROOT / "site" / "docs" / name).read_bytes() == (ROOT / "docs" / name).read_bytes()
     html = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
     assert 'href="#legal"' in html and "Legal_and_Sourcing_Guide.docx" in html
+    # The video downloads from the GitHub site itself: the empty Searches page, the Help page's Video note and its end
+    assert 'const FILM_MP4 = "docs/Talent_Acquisition_Agent_Walkthrough.mp4"' in html
+    assert html.count('href="${FILM_MP4}" download') == 2 and 'docLink("Talent_Acquisition_Agent_Walkthrough.mp4"' in html
+    mp4 = (ROOT / "docs" / "Talent_Acquisition_Agent_Walkthrough.mp4").read_bytes()
+    assert mp4[4:8] == b"ftyp" and len(mp4) < 50_000_000  # an MP4, and small enough for the repository
 
 
 def test_github_site_loads_no_third_party_scripts():

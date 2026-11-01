@@ -4,4 +4,4 @@ One file per working session, newest first. Each file lists what changed, why, a
 
 | Session | Versions | File |
 |---|---|---|
-| October 30 to November 1, 2026 | Phase 1 through beta 1.2.4 | [2026-10-30_session.md](2026-10-30_session.md) |
+| October 30 to November 1, 2026 | Phase 1 through beta 1.2.5 | [2026-10-30_session.md](2026-10-30_session.md) |

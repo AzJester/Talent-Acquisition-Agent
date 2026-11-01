@@ -106,9 +106,9 @@ def main() -> None:
     (site / "index.html").write_text(page, encoding="utf-8")
     (site / ".nojekyll").write_text("", encoding="utf-8")
     (site / "sample_candidates.csv").write_text(sample_csv, encoding="utf-8")
-    # Word guides linked from the Legal and Help pages
+    # Word guides and the walkthrough video (MP4) linked from the Searches, Legal and Help pages
     (site / "docs").mkdir(exist_ok=True)
-    for name in ("Legal_and_Sourcing_Guide.docx", "User_Guide.docx"):
+    for name in ("Legal_and_Sourcing_Guide.docx", "User_Guide.docx", "Talent_Acquisition_Agent_Walkthrough.mp4"):
         (site / "docs" / name).write_bytes((ROOT / "docs" / name).read_bytes())
     print(f"wrote site/index.html ({len(page):,} bytes); run `npm run bundle` in standalone/vendor for site/vendor (SDK and parsers)")
 
