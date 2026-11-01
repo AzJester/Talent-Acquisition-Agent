@@ -238,7 +238,10 @@ criteria:
 def test_lapsed_or_eligible_clearances_are_capped(rubric, signals):
     cases = {"Inactive TS/SCI (expired 2017).": 1, "Formerly held TS/SCI; no current clearance.": 1,
              "TS/SCI eligible; no current clearance.": 1, "Active Top Secret (SCI eligible).": 3,
-             "Active TS/SCI with CI poly; previously held Secret.": 4, "Clearance not active: TS/SCI.": 1}
+             "Active TS/SCI with CI poly; previously held Secret.": 4, "Clearance not active: TS/SCI.": None,
+             "Formerly held an active TS/SCI.": 1, "TS/SCI (expired; was active through 2019).": 1,
+             "Active duty Army; TS/SCI inactive since 2019.": 1, "TS SCI, active.": 4, "TS-SCI": 4, "TS//SCI": 4,
+             "No active clearance.": None}
     for text, want in cases.items():
         assert heuristic_card(_profile(text), rubric, Matcher(signals)).get("active_clearance").score == want, text
 
@@ -258,8 +261,9 @@ def test_keyword_input_is_strict():
             rubric_from_yaml(f"id: r\ntitle: R\ncriteria:\n  - {{id: c, name: C, type: requirement, weight: 10, {bad}}}\n")
 
 
-def test_a_keyword_removed_from_the_list_loses_its_score():
-    r = rubric_from_yaml("""
+def test_a_score_for_a_keyword_not_in_the_list_is_refused():
+    with pytest.raises(ValueError, match="not in keywords"):
+        rubric_from_yaml("""
 id: r
 title: R
 criteria:
@@ -270,4 +274,46 @@ criteria:
     keywords: [TS/SCI]
     keyword_scores: {TS/SCI: 4, Secret: 2}
 """)
-    assert r.criteria[0].keywords == ["TS/SCI"] and r.criteria[0].keyword_scores == {"TS/SCI": 4}
+
+
+def test_mentions_are_all_read_and_negations_skipped(signals):
+    rubric = _keyword_rubric()
+    card = heuristic_card(_profile("Former NSA analyst with Secret. Active TS/SCI."), rubric, Matcher(signals))
+    assert card.get("clearance").score == 4
+    card = heuristic_card(_profile("No budget experience. Strong EVM reporting."), rubric, Matcher(signals))
+    assert card.get("budgeting").score == 4 and "EVM" in card.get("budgeting").evidence[0]
+    card = heuristic_card(_profile("No budget experience."), rubric, Matcher(signals))
+    assert card.get("budgeting").score is None
+
+
+def test_team_size_needs_the_persons_own_team(rubric, signals):
+    cases = {"Director of Talent Acquisition, hired 150+ engineers in 2023.": None,
+             "Senior engineer reporting to the VP of Engineering (200+ engineers).": None,
+             "Director overseeing 150 engineers.": 4, "Engineering Manager (12 engineers).": 1,
+             "VP Engineering | 200 engineers": 4}
+    for text, want in cases.items():
+        assert heuristic_card(_profile(text, title="Engineer"), rubric, Matcher(signals)).get("large_org_leadership").score == want, text
+
+
+def test_keyword_scores_must_be_a_mapping():
+    for bad in ["keyword_scores: [TS/SCI]", "keyword_scores: 3"]:
+        with pytest.raises(ValueError):
+            rubric_from_yaml(f"id: r\ntitle: R\ncriteria:\n  - {{id: c, name: C, type: requirement, weight: 10, keywords: [TS/SCI], {bad}}}\n")
+
+
+def test_current_scoring_line_survives_json_and_flow_style():
+    from taa.llm.intake import with_current_scoring
+    for text in ['{"id": "r", "title": "R", "criteria": [{"id": "c", "name": "C", "type": "requirement", "weight": 10}]}',
+                 "# note\n---\nid: r\ntitle: R\ncriteria: [{id: c, name: C, type: requirement, weight: 10}]\n...\n"]:
+        assert rubric_from_yaml(with_current_scoring(text)).scoring == 2
+
+
+def test_do_not_target_matching():
+    from taa.pipeline.filters import dnt_match
+    yes = [("Acme Corp", "Acme Corp."), ("Acme Inc", "Acme, Inc."), ("Boeing", "The Boeing Company"), ("Acme Holdings LP", "Acme Holdings, L.P."),
+           ("Thales", "Thalès"), ("Macys", "Macy's"), ("Acme Corporation Space Division", "Acme Corp"), ("Leidos Inc.", "Leidos")]
+    no = [("Sierra Nevada Brewing Co.", "Sierra Nevada Corporation"), ("Acme Space Systems", "Acme Corp"), ("Globex", "Inc.")]
+    for company, name in yes:
+        assert dnt_match(company, [name]), (company, name)
+    for company, name in no:
+        assert not dnt_match(company, [name]), (company, name)

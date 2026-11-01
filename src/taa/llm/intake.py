@@ -86,6 +86,18 @@ def with_current_scoring(yaml_text: str) -> str:
     """A newly created rubric uses the current scoring rules (2) unless its YAML says otherwise.
     Rubrics stored before beta 1.2.4 have no scoring line and keep rules 1."""
     data = yaml.safe_load(yaml_text) or {}
-    if isinstance(data, dict) and "scoring" not in data:
-        return yaml_text.rstrip("\n") + "\nscoring: 2\n"
-    return yaml_text
+    if not isinstance(data, dict) or "scoring" in data:
+        return yaml_text
+    # Keep the author's text and comments: put the line after any leading comments; if that does not read back
+    # the same (JSON, flow style, document markers), store a clean dump instead
+    lines = yaml_text.splitlines(keepends=True)
+    i = 0
+    while i < len(lines) and (not lines[i].strip() or lines[i].lstrip().startswith("#") or lines[i].strip() == "---"):
+        i += 1
+    candidate = "".join(lines[:i]) + "scoring: 2\n" + "".join(lines[i:])
+    try:
+        if yaml.safe_load(candidate) == {**data, "scoring": 2}:
+            return candidate
+    except yaml.YAMLError:
+        pass
+    return yaml.safe_dump({**data, "scoring": 2}, sort_keys=False, allow_unicode=True, width=100)

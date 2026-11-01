@@ -97,11 +97,12 @@ criteria:
     # Each keyword carries the score the guidance gives it, so an active TS/SCI scores 4 without Claude.
     # A sentence that says the clearance lapsed, or only that the person is eligible, scores at most 1
     # unless it also says active.
-    keywords: {TS/SCI: 4, Top Secret/SCI: 4, Top Secret: 3, Secret clearance: 2, Active Secret: 2, active clearance: 2}
+    keywords: {TS/SCI: 4, TS SCI: 4, TS-SCI: 4, TS//SCI: 4, TS / SCI: 4, Top Secret/SCI: 4, Top Secret: 3,
+               Secret clearance: 2, Active Secret: 2, active clearance: 2}
     keyword_cap:
       score: 1
       when: [inactive, expired, lapsed, former, formerly, previously, eligible, eligibility, no current, not active,
-             no longer, willing to obtain, able to obtain, ability to obtain]
+             no longer, not currently, pending, willing to obtain, able to obtain, ability to obtain]
       unless: [active]
     guidance: >-
       4 = states an active TS/SCI; 3 = states an active Top Secret; 2 = states an active Secret;

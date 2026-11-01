@@ -11,8 +11,22 @@ import secrets
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
@@ -23,9 +37,24 @@ from yaml import YAMLError
 from taa import __version__
 from taa.config import Settings, load_settings
 from taa.connectors.file_import import load_file
-from taa.db import AuditRow, ResultRow, ReviewRow, RubricRow, SearchInputRow, SearchRow, audit, make_session_factory, utcnow
+from taa.db import (
+    AuditRow,
+    ResultRow,
+    ReviewRow,
+    RubricRow,
+    SearchInputRow,
+    SearchRow,
+    audit,
+    make_session_factory,
+    utcnow,
+)
 from taa.llm.client import LLMClient, LLMError, make_client
-from taa.llm.intake import draft_rubric, rubric_from_yaml, rubric_to_yaml, with_current_scoring
+from taa.llm.intake import (
+    draft_rubric,
+    rubric_from_yaml,
+    rubric_to_yaml,
+    with_current_scoring,
+)
 from taa.llm.outreach import draft_outreach
 from taa.models import Rubric, ScoreCard
 from taa.query_planner import plan_queries
@@ -215,6 +244,9 @@ def create_app(settings: Settings | None = None, llm_client: LLMClient | None | 
                 audit(s, user, "rubric.versioned", None, from_row=row.id, to_row=newrow.id, version=new.version)
                 s.commit()
                 return RedirectResponse(f"/rubrics/{newrow.id}", status_code=303)
+            # A draft has never been approved, so an edit takes the current scoring rules, as in the browser app
+            yaml_text = with_current_scoring(yaml_text)
+            r = rubric_from_yaml(yaml_text)
             row.yaml_text, row.title = yaml_text, r.title
             audit(s, user, "rubric.edited", None, rubric_row=row.id)
             s.commit()

@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 
 class Position(BaseModel):
@@ -67,7 +67,8 @@ _ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 class KeywordCap(BaseModel):
-    score: int = Field(ge=0, le=4)
+    model_config = ConfigDict(extra="forbid")
+    score: StrictInt = Field(ge=0, le=4)
     when: list[str]
     unless: list[str] = Field(default_factory=list)
 
@@ -106,15 +107,26 @@ class Criterion(BaseModel):
             merged.update({str(k): v for k, v in scores.items()})
             data["keywords"] = list(merged)
             data["keyword_scores"] = merged
-        else:
-            kws = kws or []
-            data["keyword_scores"] = {str(k): v for k, v in scores.items() if str(k) in [str(x) for x in kws]}
         return data
+
+    @model_validator(mode="after")
+    def _scores_name_listed_keywords(self) -> Criterion:
+        listed = set(self.keywords)
+        for k in self.keyword_scores:
+            if k not in listed:
+                near = next((x for x in self.keywords if x.lower() == k.lower()), None)
+                hint = f"; did you mean '{near}'?" if near else ". Add it to keywords, or remove its score."
+                raise ValueError(f"keyword_scores names '{k}', which is not in keywords{hint}")
+        return self
 
     @field_validator("keyword_scores", mode="before")
     @classmethod
     def _check_scores(cls, v):
-        for k, s in (v or {}).items():
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError("keyword_scores must be a mapping of keyword to score (0 to 4)")
+        for k, s in v.items():
             if isinstance(s, bool) or not isinstance(s, int) or not 0 <= s <= 4:
                 raise ValueError(f"the score for keyword '{k}' must be a whole number from 0 to 4")
         return v
@@ -148,7 +160,7 @@ class Rubric(BaseModel):
     criteria: list[Criterion]
     # Scoring rules version. 1: rules before beta 1.2.4 (kept for rubrics approved then, so an approved version
     # scores the same forever). 2: FOUND for keyword-only items, keyword caps, stricter team-size phrasing.
-    scoring: int = 1
+    scoring: Literal[1, 2] = 1
 
     @model_validator(mode="after")
     def _unique_ids(self) -> "Rubric":
