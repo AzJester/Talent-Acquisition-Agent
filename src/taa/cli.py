@@ -33,13 +33,14 @@ def cmd_serve(args) -> int:
 
 def cmd_run(args) -> int:
     from taa.llm.client import make_client
-    from taa.llm.intake import rubric_from_yaml
+    from taa.llm.intake import rubric_from_yaml, with_current_scoring
     from taa.pipeline.filters import load_do_not_target
     from taa.pipeline.run import run_pipeline
     from taa.signals import load_signals
 
     settings = load_settings()
-    rubric = rubric_from_yaml(Path(args.rubric).read_text(encoding="utf-8"))
+    # A rubric file on the command line is scored with the current rules unless it names its own scoring version
+    rubric = rubric_from_yaml(with_current_scoring(Path(args.rubric).read_text(encoding="utf-8")))
     signals = load_signals(settings.signals_path)
     dnt = load_do_not_target(Path(args.do_not_target) if args.do_not_target else settings.do_not_target_path)
     client = None if args.heuristic else make_client(settings)

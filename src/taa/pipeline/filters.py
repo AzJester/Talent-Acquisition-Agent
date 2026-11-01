@@ -6,6 +6,7 @@ not gated, so an unusual but strong candidate is never silently dropped."""
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,6 +55,33 @@ def months_since(value: str | None, now: datetime) -> int | None:
     return (now.year - ym[0]) * 12 + (now.month - ym[1])
 
 
+_SUFFIXES = {"inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "llp", "plc", "gmbh", "lp"}
+
+
+def company_key(name: str) -> str:
+    """Company name for do-not-target matching: case, punctuation and trailing Inc., LLC, Corp. and similar
+    are ignored, so "Acme Corp." matches "Acme Corp". Same rule as companyKey in standalone/app.html."""
+    text = unicodedata.normalize("NFKC", name or "").lower().replace("&", " and ")
+    toks = [t for t in re.sub(r"[\W_]+", " ", text).split() if t]
+    while True:
+        if len(toks) >= 3 and "".join(toks[-3:]) == "llc":
+            del toks[-3:]
+        elif toks and toks[-1] in _SUFFIXES:
+            toks.pop()
+        else:
+            break
+    return " ".join(toks)
+
+
+def dnt_match(company: str, names: list[str]) -> str | None:
+    ck = " " + company_key(company) + " "
+    for n in names:
+        nk = company_key(n)
+        if nk and " " + nk + " " in ck:
+            return n
+    return None
+
+
 def apply_filters(resolved: dict[str, Profile], rubric: Rubric, dnt: DoNotTarget,
                   now: datetime | None = None) -> tuple[dict[str, list[str]], list[Exclusion]]:
     """Return ({key: flags} for kept candidates, exclusions)."""
@@ -65,12 +93,12 @@ def apply_filters(resolved: dict[str, Profile], rubric: Rubric, dnt: DoNotTarget
         flags: list[str] = []
         reason = None
         for entry in dnt.employers:
-            if any(employer_matches(c, entry.names) for c in p.current_employers()):
+            if any(dnt_match(c, entry.names) for c in p.current_employers()):
                 reason = f"Do not target: current employer {entry.name.rstrip('.')}. {entry.reason}"
                 break
             if entry.lookback_months:
                 for pos in p.positions:
-                    if pos.is_current or not employer_matches(pos.company, entry.names):
+                    if pos.is_current or not dnt_match(pos.company, entry.names):
                         continue
                     ago = months_since(pos.end, now)
                     if ago is not None and ago <= entry.lookback_months:

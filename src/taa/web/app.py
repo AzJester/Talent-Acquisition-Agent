@@ -25,7 +25,7 @@ from taa.config import Settings, load_settings
 from taa.connectors.file_import import load_file
 from taa.db import AuditRow, ResultRow, ReviewRow, RubricRow, SearchInputRow, SearchRow, audit, make_session_factory, utcnow
 from taa.llm.client import LLMClient, LLMError, make_client
-from taa.llm.intake import draft_rubric, rubric_from_yaml, rubric_to_yaml
+from taa.llm.intake import draft_rubric, rubric_from_yaml, rubric_to_yaml, with_current_scoring
 from taa.llm.outreach import draft_outreach
 from taa.models import Rubric, ScoreCard
 from taa.query_planner import plan_queries
@@ -154,6 +154,7 @@ def create_app(settings: Settings | None = None, llm_client: LLMClient | None | 
     def rubric_create(request: Request, yaml_text: str = Form(...), csrf: str = Form(""), user: str = Depends(current_user)):
         check_csrf(user, csrf)
         try:
+            yaml_text = with_current_scoring(yaml_text)
             r = rubric_from_yaml(yaml_text)
         except (ValidationError, YAMLError, TypeError) as e:
             return render(request, "rubric_new.html", user, "rubrics", request_text="", yaml_text=yaml_text,
@@ -204,6 +205,7 @@ def create_app(settings: Settings | None = None, llm_client: LLMClient | None | 
                 latest = max(v for v in s.scalars(select(RubricRow.version).where(RubricRow.slug == row.slug)))
                 data = r.model_dump(mode="json")
                 data["version"] = latest + 1
+                data["scoring"] = max(data.get("scoring", 1), 2)  # a new version needs approval, so it takes the current rules
                 new = Rubric.model_validate(data)
                 text = rubric_to_yaml(new)
                 newrow = RubricRow(slug=row.slug, version=new.version, title=new.title, yaml_text=text,

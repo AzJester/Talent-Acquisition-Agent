@@ -61,7 +61,7 @@
       <input type="hidden" name="decision" value="approve">
       <label for="approve_reason">Approve for outreach</label>
       <div class="row">
-        <select id="approve_reason" name="reason_code" style="flex:1;min-width:180px">
+        <select id="approve_reason" name="reason_code" required style="flex:1;min-width:180px"><option value="" selected>Choose a reason</option>
           {% for k, v in approve_reasons.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
         </select>
         <button class="btn btn-primary" type="submit">Approve</button>
@@ -73,7 +73,7 @@
       <input type="hidden" name="decision" value="reject">
       <label for="reject_reason">Reject</label>
       <div class="row">
-        <select id="reject_reason" name="reason_code" style="flex:1;min-width:180px">
+        <select id="reject_reason" name="reason_code" required style="flex:1;min-width:180px"><option value="" selected>Choose a reason</option>
           {% for k, v in reject_reasons.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}
         </select>
         <button class="btn" type="submit">Reject</button>

@@ -74,6 +74,8 @@ def main() -> None:
                 c.pop("heuristic", None)
             if not c.get("keyword_scores"):
                 c.pop("keyword_scores", None)
+            if c.get("keyword_cap") is None:
+                c.pop("keyword_cap", None)
         templates.append(data)
     html = (ROOT / "standalone" / "app.html").read_text(encoding="utf-8")
     sample_csv = write_sample_csv()

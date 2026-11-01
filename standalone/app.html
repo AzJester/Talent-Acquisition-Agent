@@ -307,19 +307,25 @@ function matchSignals(mp, caps) {
 }
 
 // ------------------------------------------------------------------ heuristic scorer
-const NUM = "(\\d{1,3}(?:,\\d{3})*|\\d+)";
-const TEAM = [
-  "\\b(?:led|lead|leads|leading|head|heads|headed|heading|manag(?:e|ed|es|ing)|built|grew|scaled|oversaw|oversee|oversees|direct(?:ed|s|ing)?|ran|run|runs)\\b[^.\\n;]{0,60}?\\b" + NUM +
-    "\\+?\\s*(?:-\\s*person|person|people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\\b",
-  "\\b(?:team|org|organization|organisation|department|group|workforce) of\\s+" + NUM + "\\+?",
-  "\\b" + NUM + "\\+?\\s*(?:-\\s*person|person)\\s+(?:team|org|organization|engineering)",
-  // a head count in parentheses, "(65 engineers)", or with a plus sign, "200+ engineers"
-  "\\(\\s*" + NUM + "\\+?\\s*(?:people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\\s*\\)",
-  "\\b" + NUM + "\\+\\s*(?:people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\\b",
+const NUM = "([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)";
+const PEOPLE = String.raw`(?:-\s*person|person|people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)`;
+const REPORTS = String.raw`(?:people|engineers|developers|staff|software engineers|engineering staff|team members|FTEs?)`;  // not "employees": company size
+const LEADER = String.raw`\b(?:director|vp|vice\s+president|head\s+of|chief|cto)\b`;
+const TEAM_V1 = [
+  String.raw`\b(?:led|lead|leading|manag(?:e|ed|es|ing)|built|grew|scaled|oversaw|oversee|oversees|direct(?:ed|s|ing)?|ran|run|runs)\b[^.\n;]{0,60}?\b` + NUM + String.raw`\+?\s*` + PEOPLE + String.raw`\b`,
+  String.raw`\b(?:team|org|organization|organisation|department|group|workforce) of\s+` + NUM + String.raw`\+?`,
+  String.raw`\b` + NUM + String.raw`\+?\s*(?:-\s*person|person)\s+(?:team|org|organization|engineering)`,
 ];
-function teamSize(mp) {
+// Scoring rules 2 add phrasings, each tied to leadership so audiences, hires and company size do not count:
+// "Leads 120 engineers", "Director of DevSecOps over 6 teams (65 engineers)", "VP, Software | 200+ engineers"
+const TEAM_V2 = [...TEAM_V1,
+  String.raw`\b(?:leads|heads)\s+(?:(?:a|an|the|over|about|nearly|approximately|more\s+than|up\s+to)\s+)?` + NUM + String.raw`\+?\s*` + PEOPLE + String.raw`\b`,
+  "(?:" + LEADER + String.raw`|\b(?:manager|lead|led|leads|manages|managed|oversees|oversaw|directs|directed)\b)[^.\n;()]{0,80}?\(\s*` + NUM + String.raw`\+?\s*` + REPORTS + String.raw`\s*\)`,
+  LEADER + String.raw`[^.\n;]{0,80}?\b` + NUM + String.raw`\+\s*` + REPORTS + String.raw`\b`,
+];
+function teamSize(mp, rules = 2) {
   let best = null;
-  for (const section of mp.sections) for (const src of TEAM) {
+  for (const section of mp.sections) for (const src of rules >= 2 ? TEAM_V2 : TEAM_V1) {
     const rx = new RegExp(src, "gi"); let m;
     while ((m = rx.exec(section))) {
       const n = parseInt(m[1].replace(/,/g, ""), 10);
@@ -329,22 +335,34 @@ function teamSize(mp) {
   return best;
 }
 const teamScore = (n) => (n >= 100 ? 4 : n >= 50 ? 3 : n >= 20 ? 2 : n >= 5 ? 1 : 0);
+// A keyword hit is capped when its sentence has a "when" term (inactive, expired...) and no "unless" term
+// (active) that is not itself negated ("not active", "no longer active")
+function capped(sentence, cap) {
+  if (!(cap.when || []).some((t) => wordRe(t).test(sentence))) return false;
+  return !(cap.unless || []).some((t) => new RegExp("(?<!not )(?<!no longer )" + wordRe(t).source, "i").test(sentence));
+}
 function heuristicCard(rubric, mp) {
   const caps = [...new Set(rubric.criteria.flatMap((c) => c.signals || []))];
   const matches = caps.length ? matchSignals(mp, caps) : [];
+  const rules = Number(rubric.scoring) || 1, v2 = rules >= 2;
   const scores = rubric.criteria.map((c) => {
     const hits = [];  // [score, quote, why, kind]
     for (const m of matches) if ((c.signals || []).includes(m.cap)) hits.push([STRENGTH[m.strength], m.quote, `${m.cap} (${m.strength})`, "signal"]);
-    // Keywords with their own score ("TS/SCI: 4") use it. A plain keyword on an item with no signals, no
-    // team-size rule and no scored keywords is a found/not-found check worth full credit; elsewhere it supports at 2.
+    // Keywords with their own score ("TS/SCI: 4") use it. Under scoring rules 2, a plain keyword on an item with no
+    // signals, no team-size rule and no scored keywords is a found/not-found check worth full credit; otherwise it
+    // supports at 2 (rules 1, for rubrics approved before beta 1.2.4, always use 2).
     const ks = c.keyword_scores || {}, scored = Object.keys(ks).length > 0;
-    const foundOnly = !(c.signals || []).length && !c.heuristic && !scored;
+    const foundOnly = v2 && !(c.signals || []).length && !c.heuristic && !scored;
+    const cap = v2 ? c.keyword_cap : null;
     for (const kw of c.keywords || []) {
       const q = findKeyword(mp, kw); if (!q) continue;
-      if (Object.prototype.hasOwnProperty.call(ks, kw)) hits.push([ks[kw], q, `keyword '${kw}' (${ks[kw]} of 4)`, "keyword"]);
-      else hits.push([foundOnly ? 4 : 2, q, `keyword '${kw}'`, "keyword"]);
+      let score, why;
+      if (Object.prototype.hasOwnProperty.call(ks, kw)) { score = ks[kw]; why = `keyword '${kw}' (${ks[kw]} of 4)`; }
+      else { score = foundOnly ? 4 : 2; why = `keyword '${kw}'`; }
+      if (cap && score > cap.score && capped(q, cap)) { score = cap.score; why += `, capped at ${cap.score}`; }
+      hits.push([score, q, why, "keyword"]);
     }
-    if (c.heuristic === "team_size") { const ts = teamSize(mp); if (ts) hits.push([teamScore(ts[0]), ts[1], `team size ${ts[0]}`, "team"]); }
+    if (c.heuristic === "team_size") { const ts = teamSize(mp, rules); if (ts) hits.push([teamScore(ts[0]), ts[1], `team size ${ts[0]}`, "team"]); }
     if (!hits.length) return { criterion_id: c.id, score: null, evidence: [], rationale: "No matching evidence found.", removed_quotes: 0 };
     hits.sort((a, b) => b[0] - a[0]);
     let best = hits[0][0];
@@ -382,7 +400,9 @@ function applyVerification(card, sourceText) {
       score = null;
       if (removed) rationale = (rationale ? rationale + " " : "") + "Evidence could not be verified in the profile; marked unknown.";
     }
-    return { ...s, score, evidence: kept, rationale, removed_quotes: (s.removed_quotes || 0) + removed };
+    const out = { ...s, score, evidence: kept, rationale, removed_quotes: (s.removed_quotes || 0) + removed };
+    if (score === null) delete out.basis;
+    return out;
   });
   return card;
 }
@@ -492,9 +512,9 @@ function applyFilters(resolved, rubric, dnt) {
     const flags = []; let reason = null;
     for (const e of dnt.employers || []) {
       const names = [e.name, ...(e.aliases || [])];
-      if (currentEmployers(p).some((c) => employerMatch(c, names))) { reason = `Do not target: current employer ${String(e.name).replace(/\.+$/, "")}. ${e.reason || "Non-solicitation obligation"}`; break; }
+      if (currentEmployers(p).some((c) => dntMatch(c, names))) { reason = `Do not target: current employer ${String(e.name).replace(/\.+$/, "")}. ${e.reason || "Non-solicitation obligation"}`; break; }
       if (e.lookback_months) for (const pos of p.positions || []) {
-        if (isCurrent(pos) || !employerMatch(pos.company, names)) continue;
+        if (isCurrent(pos) || !dntMatch(pos.company, names)) continue;
         const ago = monthsSince(pos.end, now);
         if (ago !== null && ago <= e.lookback_months) flags.push(`Left ${e.name} ${ago} months ago; check non-solicit terms before contact`);
       }
@@ -614,8 +634,16 @@ function validateRubric(r) {
     const kwMap = c.keywords && typeof c.keywords === "object" && !Array.isArray(c.keywords);
     if (c.keywords !== undefined && c.keywords !== null && !Array.isArray(c.keywords) && !kwMap) errs.push(`criterion '${c.id}': keywords must be a list, or a mapping of keyword to score (0 to 4).`);
     if (c.keyword_scores !== undefined && c.keyword_scores !== null && (typeof c.keyword_scores !== "object" || Array.isArray(c.keyword_scores))) errs.push(`criterion '${c.id}': keyword_scores must be a mapping of keyword to score (0 to 4).`);
-    for (const [k, v] of Object.entries({ ...(kwMap ? c.keywords : {}), ...(c.keyword_scores && typeof c.keyword_scores === "object" ? c.keyword_scores : {}) }))
+    if (Array.isArray(c.keywords) && c.keywords.some((k) => typeof k !== "string"))
+      errs.push(`criterion '${c.id}': each keyword must be a word or phrase (put numbers in quotes). For scores, write keywords: {TS/SCI: 4} without square brackets.`);
+    const ksObj = c.keyword_scores && typeof c.keyword_scores === "object" && !Array.isArray(c.keyword_scores) ? c.keyword_scores : {};
+    for (const [k, v] of Object.entries({ ...(kwMap ? c.keywords : {}), ...ksObj }))
       if (!(Number.isInteger(v) && v >= 0 && v <= 4)) errs.push(`criterion '${c.id}': the score for keyword '${k}' must be a whole number from 0 to 4.`);
+    if (c.keyword_cap !== undefined && c.keyword_cap !== null) {
+      const kc = c.keyword_cap, words = (x) => Array.isArray(x) && x.every((t) => typeof t === "string");
+      if (typeof kc !== "object" || Array.isArray(kc) || !Number.isInteger(kc.score) || kc.score < 0 || kc.score > 4 || !words(kc.when) || (kc.unless !== undefined && !words(kc.unless)))
+        errs.push(`criterion '${c.id}': keyword_cap needs score (0 to 4), when (a list of words) and optionally unless (a list of words).`);
+    }
     if (!c.id || !/^[a-z][a-z0-9_]*$/.test(String(c.id))) errs.push(`criterion id '${c.id}' must be snake_case.`);
     if (seen.has(c.id)) errs.push(`criterion id '${c.id}' is repeated.`); seen.add(c.id);
     if (!["requirement", "desirement"].includes(c.type)) errs.push(`criterion '${c.id}': type must be requirement or desirement.`);
@@ -625,7 +653,8 @@ function validateRubric(r) {
   return errs;
 }
 function normalizeRubric(r) {
-  return { id: String(r.id), version: Number(r.version) || 1, title: String(r.title), summary: String(r.summary || ""), role_pitch: String(r.role_pitch || ""),
+  // scoring: rules version 2 for every rubric created from now on; stored rubrics without it keep rules 1
+  return { id: String(r.id), version: Number(r.version) || 1, scoring: Number(r.scoring) || 2, title: String(r.title), summary: String(r.summary || ""), role_pitch: String(r.role_pitch || ""),
     target_titles: (r.target_titles || []).map(String), target_companies: (r.target_companies || []).map(String),
     gates: { locations: ((r.gates || {}).locations || []).map(String), allow_unknown_location: (r.gates || {}).allow_unknown_location !== false },
     criteria: r.criteria.map((c) => ({ id: String(c.id), name: String(c.name || c.id), short: String(c.short || ""), type: c.type, weight: Number(c.weight),
@@ -636,11 +665,29 @@ function normalizeRubric(r) {
 function normalizeKeywords(c) {
   const keywords = [], scores = {};
   const add = (k) => { k = String(k); if (!keywords.includes(k)) keywords.push(k); return k; };
-  if (Array.isArray(c.keywords)) c.keywords.forEach(add);
-  else if (c.keywords && typeof c.keywords === "object") for (const [k, v] of Object.entries(c.keywords)) scores[add(k)] = Number(v);
-  if (c.keyword_scores && typeof c.keyword_scores === "object" && !Array.isArray(c.keyword_scores))
-    for (const [k, v] of Object.entries(c.keyword_scores)) scores[add(k)] = Number(v);
-  return Object.keys(scores).length ? { keywords, keyword_scores: scores } : { keywords };
+  const extra = c.keyword_scores && typeof c.keyword_scores === "object" && !Array.isArray(c.keyword_scores) ? c.keyword_scores : {};
+  if (c.keywords && typeof c.keywords === "object" && !Array.isArray(c.keywords)) {
+    for (const [k, v] of Object.entries({ ...c.keywords, ...extra })) scores[add(k)] = Number(v);
+  } else {
+    // A list is authoritative: a keyword deleted from the list loses its score too
+    (c.keywords || []).forEach(add);
+    for (const [k, v] of Object.entries(extra)) if (keywords.includes(String(k))) scores[String(k)] = Number(v);
+  }
+  const out = Object.keys(scores).length ? { keywords, keyword_scores: scores } : { keywords };
+  if (c.keyword_cap) out.keyword_cap = { score: Number(c.keyword_cap.score), when: c.keyword_cap.when.map(String), unless: (c.keyword_cap.unless || []).map(String) };
+  return out;
+}
+// The YAML people edit shows each keyword once: a fully scored item as a keyword: score mapping
+function rubricYaml(r) {
+  const out = clone(r);
+  for (const c of out.criteria) {
+    const ks = c.keyword_scores || {};
+    if (Object.keys(ks).length && c.keywords.every((k) => k in ks) && Object.keys(ks).every((k) => c.keywords.includes(k))) {
+      c.keywords = Object.fromEntries(c.keywords.map((k) => [k, ks[k]])); delete c.keyword_scores;
+    }
+    if (!c.heuristic) delete c.heuristic;
+  }
+  return jsyaml.dump(out, { lineWidth: 100, noRefs: true });
 }
 const critLabel = (c) => (c.short || c.id.replace(/_/g, " ")).toUpperCase();
 function dedupe(items) { const seen = new Set(), out = []; for (const i of items) { const k = String(i).trim().toLowerCase(); if (k && !seen.has(k)) { seen.add(k); out.push(String(i).trim()); } } return out; }
@@ -914,6 +961,7 @@ function restoreForm(kept) {
     if ("checked" in v) el.checked = v.checked; else el.value = v.value;
     el.dataset.dirty = "1";
   }
+  syncReviewButtons();
   const f = kept["\u0000focus"], el = f && document.getElementById(f.id);
   if (el && !el.disabled) { el.focus({ preventScroll: true }); try { if (f.start !== null && f.start !== undefined) el.setSelectionRange(f.start, f.end); } catch (e) { /* not a text field */ } }
 }
@@ -929,7 +977,7 @@ function render(fromData) {
   const who = document.getElementById("who");
   who.textContent = !app.ready ? "Connecting" : HOST === "github" ? `This browser / ${app.sample ? "Claude on" : "heuristic only"}` : app.me && app.me.name ? `${app.me.name} / ${app.isAdmin ? "editor" : app.canWrite === false ? "view only" : "contributor"}` : "Signed out";
   let html = "";
-  if (app.flash) html += `<div class="notice" role="status"><b>${esc(app.flash.kind)}</b>${esc(app.flash.text)}${app.flash.undo ? ` <button class="btn btn-quiet" data-act="undoReview" style="min-height:28px;margin-left:8px">Undo</button>` : ""} <button class="btn btn-quiet" data-act="dismiss" style="min-height:28px;margin-left:8px">Dismiss</button></div>`;
+  if (app.flash) html += `<div class="notice"${app.flash.announced ? "" : ' role="status"'}><b>${esc(app.flash.kind)}</b>${esc(app.flash.text)}${app.flash.undo ? ` <button class="btn btn-quiet" data-act="undoReview" style="min-height:28px;margin-left:8px">Undo</button>` : ""} <button class="btn btn-quiet" data-act="dismiss" style="min-height:28px;margin-left:8px">Dismiss</button></div>`;
   if (!app.ready) html += `<p class="muted">Connecting to shared storage</p>`;
   else if (route === "help") html += helpView();
   else if (route === "legal") html += legalView();
@@ -944,6 +992,7 @@ function render(fromData) {
   else if (route === "legal") html += legalView();
   else html += searchesView();
   view.innerHTML = html;
+  if (app.flash) app.flash.announced = true;
   for (const [id, text] of Object.entries(app.statusText)) { const el = document.getElementById(id); if (el) el.textContent = text; }
   if (route === lastRoute) restoreForm(kept);
   lastRoute = route;
@@ -965,7 +1014,7 @@ function viewOnlyNotice() {
 
 // ---- searches list
 function searchesView() {
-  const approved = app.rubrics.filter(isSignedOff);
+  const approved = app.rubrics.filter(isSignedOff).sort((a, b) => String(b.approvedAt || "").localeCompare(String(a.approvedAt || "")));
   let h = `<div class="head"><div><p class="label">Talent Acquisition</p><h1>Searches</h1>
     <p class="lede">Score candidates from licensed exports against an approved rubric. Every score quotes the profile, and every quote is checked.</p></div>
     ${approved.length ? `<a class="btn btn-primary" href="#new-search">New search</a>` : `<a class="btn btn-primary" href="#rubrics">Approve a rubric first</a>`}</div>`;
@@ -988,7 +1037,7 @@ function searchesView() {
 
 // ---- new search
 function newSearchView() {
-  const approved = app.rubrics.filter(isSignedOff);
+  const approved = app.rubrics.filter(isSignedOff).sort((a, b) => String(b.approvedAt || "").localeCompare(String(a.approvedAt || "")));
   if (!approved.length) return `<p class="label">Searches</p><h1>New search</h1><div class="notice"><b>Blocked</b>Searches run only against an approved rubric. <a href="#rubrics">Approve one</a> first.</div>
     <div class="panel"><h3>Want to see it work first?</h3><p>Try it with sample data loads a sample scorecard and runs a search over ten fictional candidates. It does not sign off any rubric.</p>
     <div class="row"><button class="btn btn-primary" data-act="demo">Try it with sample data</button><button class="btn" type="button" data-act="sampleCsv">Download sample CSV</button></div></div>`;
@@ -1087,7 +1136,8 @@ const isSignedOff = (r) => !!r && r.status === "approved" && !isDemoRubric(r);
 async function tryDemo(btn) {
   if (btn) btn.disabled = true;
   try {
-    let r = app.rubrics.find(isDemoRubric);
+    // Only a current demo copy is reused; an older beta's "Sample data demo" approval is left alone
+    let r = app.rubrics.find((x) => x.status === "demo");
     if (!r) {
       const t = clone(TEMPLATES[0]); t.id = TEMPLATES[0].id + "_sample"; t.title = TEMPLATES[0].title + " (sample)";
       const id = await saveRubricDraft(t, "demo");
@@ -1232,12 +1282,13 @@ async function exportCsv(sid) {
   // Text that a spreadsheet would run as a formula gets a leading apostrophe
   const q = (v) => { if (typeof v === "number") return String(v); v = String(v ?? ""); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
   const rows = [["rank", "name", "headline", "location", "current_title", "current_company", "linkedin_url", "total", "coverage", "requirement_unknowns",
-    ...r.criteria.map((c) => c.id + "_score"), ...r.criteria.map((c) => c.id + "_evidence"), "flags", "scorer", "review", "review_reason", "key"]];
+    ...r.criteria.map((c) => c.id + "_score"), ...r.criteria.map((c) => c.id + "_evidence"), "found_by_keyword", "flags", "scorer", "review", "review_reason", "key"]];
   list.forEach((c, i) => {
     const p = c.profile, cur = (p.positions || []).find(isCurrent) || (p.positions || [])[0] || {};
     const sc = (id) => c.card.scores.find((x) => x.criterion_id === id) || {};
     rows.push([i + 1, p.full_name, p.headline, p.location, cur.title, cur.company, p.linkedin_url, c.total, c.coverage, c.reqUnknown,
-      ...r.criteria.map((x) => (sc(x.id).basis === "found" ? "found" : sc(x.id).score ?? "")), ...r.criteria.map((x) => (sc(x.id).evidence || []).map((ev) => { const role = roleRef(ev, p); return role ? "Role: " + roleText(role) : ev; }).join("\n")),
+      ...r.criteria.map((x) => sc(x.id).score ?? ""), ...r.criteria.map((x) => (sc(x.id).evidence || []).map((ev) => { const role = roleRef(ev, p); return role ? "Role: " + roleText(role) : ev; }).join("\n")),
+      r.criteria.filter((x) => sc(x.id).basis === "found" && sc(x.id).score !== null && sc(x.id).score !== undefined).map((x) => x.id).join("; "),
       (c.flags || []).join("; "), c.card.scorer, c.review?.decision || "", c.review?.reason || "", c.key]);
   });
   const csv = rows.map((row) => row.map(q).join(",")).join("\n");
@@ -1272,11 +1323,12 @@ function candView(sid, cid) {
   }
   const rv = c.review;
   h += `<div class="grid" style="margin-top:28px"><section class="panel"><h3>Review</h3>
-    ${rv ? `<p>Current decision: <span class="tag ${rv.decision === "approve" ? "solid" : ""}">${rv.decision === "approve" ? "approved" : "rejected"}</span> <span class="caption" data-name="${esc(rv.by || "")}">${esc(fmtDate(rv.at))}</span></p>` : ""}
+    ${rv ? `<p>Current decision: <span class="tag ${rv.decision === "approve" ? "solid" : ""}">${rv.decision === "approve" ? "approved" : "rejected"}</span> <span class="caption" data-name="${esc(rv.by || "")}">${esc(fmtDate(rv.at))}</span>
+      <button class="btn btn-quiet" data-act="clearReview" data-sid="${esc(sid)}" data-cid="${esc(cid)}" style="min-height:28px;margin-left:8px">Clear decision</button></p>` : ""}
     <div class="field"><label for="rv_ok">Approve for outreach</label><div class="row"><select id="rv_ok" style="flex:1;min-width:170px"><option value="">Choose a reason</option>${Object.entries(APPROVE).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select>
-      <button class="btn btn-primary" data-act="review" data-decision="approve" data-sid="${esc(sid)}" data-cid="${esc(cid)}" disabled>Approve</button></div></div>
+      <button class="btn btn-primary" id="rv_approve" data-act="review" data-decision="approve" data-sid="${esc(sid)}" data-cid="${esc(cid)}" disabled>Approve</button></div></div>
     <div class="field"><label for="rv_no">Reject</label><div class="row"><select id="rv_no" style="flex:1;min-width:170px"><option value="">Choose a reason</option>${Object.entries(REJECT).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join("")}</select>
-      <button class="btn" data-act="review" data-decision="reject" data-sid="${esc(sid)}" data-cid="${esc(cid)}" disabled>Reject</button></div></div>
+      <button class="btn" id="rv_reject" data-act="review" data-decision="reject" data-sid="${esc(sid)}" data-cid="${esc(cid)}" disabled>Reject</button></div></div>
     <div class="field"><label for="rv_note">Note (optional)</label><input type="text" id="rv_note"></div>
     <p class="hint">Pick a reason to turn on Approve or Reject. Reasons help the team check the scoring; use "Evidence or score is wrong" when a quote or score does not hold up.</p><p class="hint" id="rv_status" role="status"></p></section>
   <section class="panel"><h3>Outreach draft</h3>${c.outreach ? `<pre>${esc(c.outreach)}</pre>` : `<p class="muted">No draft yet. The app never sends anything; copy the draft into your own channel and edit it.</p>`}
@@ -1297,25 +1349,38 @@ function syncReviewButtons() {
   }
 }
 document.addEventListener("change", (e) => { if (e.target && (e.target.id === "rv_ok" || e.target.id === "rv_no")) syncReviewButtons(); });
+// The Approved count is recounted from the stored candidates, not from what this page last saw
+async function recountApproved(sid) {
+  const snap = await app.db.collection(`searches/${sid}/candidates`).get();
+  const approved = snap.docs.map((d) => d.data()).filter((c) => !c.excluded && c.review && c.review.decision === "approve").length;
+  await app.db.doc(`searches/${sid}`).update({ stats: { approved } });
+}
+const decisionText = (rv) => `${rv.decision === "approve" ? "Approved" : "Rejected"} (${(rv.decision === "approve" ? APPROVE : REJECT)[rv.reason] || rv.reason})`;
+let reviewing = false;
 async function review(sid, cid, decision) {
+  if (reviewing) return;
   const sel = document.getElementById(decision === "approve" ? "rv_ok" : "rv_no"), reason = sel.value;
   if (!reason) { setStatus("rv_status", `Choose a reason before you ${decision === "approve" ? "approve" : "reject"}.`); sel.focus(); return; }
   const note = document.getElementById("rv_note").value.trim().slice(0, 2000);
   const before = app.cands.get(cid), prev = before && before.review ? clone(before.review) : null;
+  const saved = { decision, reason, note, by: app.me?.id || null, at: nowIso() };
+  reviewing = true;
+  document.querySelectorAll("[data-act=review]").forEach((b) => (b.disabled = true));  // one decision per click
   try {
-    await app.db.doc(`searches/${sid}/candidates/${cid}`).update({ review: { decision, reason, note, by: app.me?.id || null, at: nowIso() } });
+    await app.db.doc(`searches/${sid}/candidates/${cid}`).update({ review: saved });
     await audit("candidate.reviewed", sid, { candidate: cid, decision, reason });
-    const s = app.searches.find((x) => x.id === sid);
-    const approved = [...app.cands.values()].filter((c) => !c.excluded && (c.id === cid ? decision === "approve" : c.review?.decision === "approve")).length;
-    if (s) await app.db.doc(`searches/${sid}`).update({ stats: { approved } });
+    await recountApproved(sid);
     document.getElementById("rv_note").value = "";
     const list = ranked([...app.cands.values()]); const idx = list.findIndex((x) => x.id === cid);
     const next = list.slice(idx + 1).find((x) => !x.review && x.id !== cid);
     const label = (decision === "approve" ? APPROVE : REJECT)[reason] || reason;
     app.flashNext = { kind: "Review saved", text: `${decision === "approve" ? "Approved" : "Rejected"}: ${(before && before.profile.full_name) || "candidate"} (${label}).`,
-      undo: { sid, cid, prev } };
+      undo: { sid, cid, prev, saved, name: (before && before.profile.full_name) || "the candidate" } };
     location.hash = next ? `#cand-${sid}-${next.id}` : `#search-${sid}`;
-  } catch (e) { say("Review", e && e.code === "invalid_argument" ? "You do not have write access. Ask the owner for Contributor access." : "The review was not saved (" + (e.code || "error") + ")."); }
+  } catch (e) {
+    syncReviewButtons();
+    say("Review", e && e.code === "invalid_argument" ? "You do not have write access. Ask the owner for Contributor access." : "The review was not saved (" + (e.code || "error") + ").");
+  } finally { reviewing = false; }
 }
 async function outreach(sid, cid) {
   const s = app.searches.find((x) => x.id === sid), c = app.cands.get(cid); if (!s || !c) return;
@@ -1366,9 +1431,9 @@ async function saveRubricDraft(obj, origin) {
   const errs = validateRubric(obj); if (errs.length) throw new Error(errs.join(" "));
   const r = normalizeRubric(obj);
   const same = app.rubrics.filter((x) => x.slug === r.id);
-  r.version = same.length ? Math.max(...same.map((x) => x.version)) + 1 : r.version || 1;
+  r.version = same.length ? Math.max(...same.map((x) => x.version)) + 1 : 1;
   const id = newId();
-  await app.db.doc(`rubrics/${id}`).set({ slug: r.id, version: r.version, title: r.title, rubric: r, yaml: jsyaml.dump(r, { lineWidth: 100, noRefs: true }),
+  await app.db.doc(`rubrics/${id}`).set({ slug: r.id, version: r.version, title: r.title, rubric: r, yaml: rubricYaml(r),
     status: "draft", origin, createdBy: app.me?.id || null, createdAt: nowIso(), approvedBy: null, approvedById: null, approvedAt: null });
   await audit("rubric.created", null, { rubric: r.id, version: r.version, origin });
   return id;
@@ -1379,7 +1444,7 @@ function rubricView(id) {
   const r = row.rubric;
   let h = `<p class="label"><a href="#rubrics">Rubrics</a> / ${esc(row.slug)} / v${esc(row.version)}</p>
   <div class="head"><div><h1>${esc(row.title)}</h1><p><span class="tag ${isSignedOff(row) ? "solid" : ""}">${esc(isDemoRubric(row) ? "demo" : row.status)}</span>
-    ${row.approvedBy ? `<span class="caption"> Approved by ${esc(row.approvedBy)}, ${esc(fmtDate(row.approvedAt))}</span>` : ""}</p></div>
+    ${row.approvedBy && !isDemoRubric(row) ? `<span class="caption"> Approved by ${esc(row.approvedBy)}, ${esc(fmtDate(row.approvedAt))}</span>` : ""}</p></div>
     ${isSignedOff(row) ? `<a class="btn btn-primary" href="#new-search">Start a search</a>` : row.status === "draft" ? `<button class="btn btn-primary" data-act="toApprove">Approve</button>` : ""}</div>
   ${isDemoRubric(row) ? `<div class="notice quiet"><b>Sample only</b>This copy of the template runs the Try it with sample data demo. Nobody has signed it off, so it cannot be used for real searches. For a real search, add the template as a draft under <a href="#rubrics">Rubrics</a> and have the hiring manager sign it off.</div>` : ""}
   ${r.summary ? `<p class="lede">${esc(r.summary)}</p>` : ""}
@@ -1389,9 +1454,9 @@ function rubricView(id) {
   ${row.status === "draft" ? `<div class="panel" style="margin:4px 0 24px"><h3>Hiring manager approval</h3><p class="caption">Approval locks this version so searches can use it. Searches record who approved the rubric they ran against.</p>
     <div class="row"><input type="text" id="approver" placeholder="Approver name" aria-label="Approver name" style="flex:1;min-width:200px;width:auto">
     <button class="btn btn-primary" data-act="approve" data-id="${esc(id)}">Approve rubric</button></div><p class="hint" id="ap_status"></p></div>` : ""}
-  <div class="grid"><section><h3>Edit</h3>${row.status !== "draft" ? `<p class="caption">${isDemoRubric(row) ? "This sample scorecard is locked." : "This version is approved and locked."} Saving creates a new draft version that needs its own approval.</p>` : ""}
+  <div class="grid">${isDemoRubric(row) ? "" : `<section><h3>Edit</h3>${row.status !== "draft" ? `<p class="caption">This version is approved and locked. Saving creates a new draft version that needs its own approval.</p>` : ""}
     <div class="field"><label for="yaml_edit">Rubric YAML</label><textarea id="yaml_edit" class="code">${esc(row.yaml)}</textarea></div>
-    <button class="btn" data-act="saveRubric" data-id="${esc(id)}">${row.status !== "draft" ? "Save as new version" : "Save"}</button> <span class="caption" id="re_status"></span></section>
+    <button class="btn" data-act="saveRubric" data-id="${esc(id)}">${row.status !== "draft" ? "Save as new version" : "Save"}</button> <span class="caption" id="re_status"></span></section>`}
   <section>${planHtml(r)}</section></div>`;
   return h;
 }
@@ -1399,22 +1464,87 @@ function rubricView(id) {
 // ---- governance
 // The do-not-target list takes plain company names (one per line) or the YAML form
 function parseDnt(text) {
-  const raw = String(text || "").trim();
+  const raw = String(text || "").replace(/\r\n?/g, "\n").replace(/[   ]/g, " ").replace(/[​-‍﻿]/g, "").trim();
   const explicitEmpty = !raw || /^(employers\s*:\s*(\[\s*\])?|\[\s*\])$/.test(raw);
-  let o; try { o = jsyaml.load(raw); } catch (e) { o = undefined; }
-  let items;
-  if (o && typeof o === "object" && !Array.isArray(o) && "employers" in o) items = Array.isArray(o.employers) ? o.employers : [];
-  else if (Array.isArray(o)) items = o;
-  else if (o && typeof o === "object" && !Array.isArray(o) && o.name) items = [o];
-  else items = raw.split(/\r?\n/).map((l) => l.replace(/^\s*[-*\u2022]\s*/, "").replace(/[,;]\s*$/, "").trim()).filter(Boolean);
-  const employers = items.map((e) => (typeof e === "string" || typeof e === "number" ? { name: String(e) } : e && typeof e === "object" && !Array.isArray(e) ? e : null))
-    .filter((e) => e && String(e.name || "").trim())
-    .map((e) => ({ name: String(e.name).trim(), aliases: (Array.isArray(e.aliases) ? e.aliases : e.aliases ? [e.aliases] : []).map(String),
-      reason: String(e.reason || "Non-solicitation obligation"), lookback_months: parseInt(e.lookback_months, 10) || 0 }));
+  const entry = (e) => ({ name: String(e.name).trim(), aliases: (Array.isArray(e.aliases) ? e.aliases : e.aliases ? [e.aliases] : []).map(String),
+    reason: String(e.reason || "Non-solicitation obligation"), lookback_months: parseInt(e.lookback_months, 10) || 0 });
+  let employers;
+  // YAML only when the text uses its keys; anything else is plain names, one per line
+  if (/^\s*(-\s+)?(employers?|name|aliases|alias|reason|lookback(_months)?)\s*:/im.test(raw)) {
+    if (typeof jsyaml === "undefined") return { error: "The YAML reader did not load. Reload the page, or type plain company names." };
+    let o; try { o = jsyaml.load(raw); } catch (e) { return { error: `Line ${e.mark ? e.mark.line + 1 : "?"}: ${e.reason || e.message}.` }; }
+    let items;
+    if (o && typeof o === "object" && !Array.isArray(o) && "employers" in o) {
+      const extra = Object.keys(o).filter((k) => k !== "employers");
+      if (extra.length) return { error: `Unknown key "${extra[0]}". The list starts with employers: and nothing else.` };
+      if (o.employers === null) items = [];
+      else if (!Array.isArray(o.employers)) return { error: "employers: must be followed by a list, one entry per line starting with a dash." };
+      else items = o.employers;
+    } else if (Array.isArray(o)) items = o;
+    else if (o && typeof o === "object" && typeof o.name === "string") items = [o];
+    else return { error: `Unknown key "${o && typeof o === "object" ? Object.keys(o)[0] : raw.split(":")[0].trim()}". The list starts with employers:` };
+    employers = [];
+    for (const [i, e] of items.entries()) {
+      if (typeof e === "string") { employers.push(entry({ name: e })); continue; }
+      if (!e || typeof e !== "object" || Array.isArray(e)) return { error: `Entry ${i + 1} is not a company name. Put names with numbers or colons in quotes.` };
+      const unknown = Object.keys(e).filter((k) => !["name", "aliases", "reason", "lookback_months"].includes(k));
+      if (unknown.length) return { error: `Entry ${i + 1}: unknown field "${unknown[0]}". Use name, aliases, reason and lookback_months.` };
+      if (typeof e.name !== "string" || !e.name.trim()) return { error: `Entry ${i + 1} has no name (or the name needs quotes).` };
+      employers.push(entry(e));
+    }
+  } else {
+    const names = [];
+    for (let line of raw.split("\n")) {
+      line = line.trim();
+      if (!line || /^#/.test(line) || /^[-=|*_~\s]+$/.test(line)) continue;  // blank, comment, divider
+      line = line.split("\t")[0].trim();                                     // pasted from Excel: first column
+      line = line.replace(/^\|\s*/, "").split(/\s*\|\s*/)[0];                // pasted table row: first cell
+      line = line.replace(/^(?:[-*•]|\(?\d{1,3}[.)])\s+/, "");          // bullets and numbering
+      line = line.replace(/^["'“”‘’]+|["'“”‘’]*[,;]?\s*$/g, "").trim();
+      if (!line || /^(company|companies|company name|employer|employers|name)$/i.test(line)) continue;  // header row
+      names.push(...splitNames(line));
+    }
+    employers = names.map((n) => entry({ name: n }));
+  }
+  for (const e of employers) if (!companyKey(e.name)) return { error: `"${e.name}" is not a company name.` };
+  const seen = new Set(); employers = employers.filter((e) => { const k = companyKey(e.name); if (seen.has(k)) return false; seen.add(k); return true; });
   return { employers, explicitEmpty };
 }
+// "Acme Corp; Beta Inc" and "Acme Corp, Beta Inc" are two names; "Beta Systems, LLC" is one
+function splitNames(line) {
+  const out = [];
+  for (const piece of line.split(";")) {
+    const parts = [];
+    for (const t of piece.split(",")) { if (parts.length && CORP_SUFFIX.test(t.trim())) parts[parts.length - 1] += "," + t; else parts.push(t); }
+    out.push(...parts.map((x) => x.trim().replace(/^["'“”]+|["'“”]+$/g, "")).filter(Boolean));
+  }
+  return out;
+}
+const CORP_SUFFIX = /^(inc|incorporated|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|llp|plc|gmbh|lp)\.?$/i;
+// The do-not-target match ignores case, punctuation and trailing Inc., LLC, Corp. and similar: "Acme Corp." matches "Acme Corp"
+function companyKey(name) {
+  const toks = String(name || "").normalize("NFKC").toLowerCase().replace(/&/g, " and ").replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(" ").filter(Boolean);
+  const SUFFIX = new Set(["inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "llp", "plc", "gmbh", "lp"]);
+  for (;;) {
+    if (toks.length >= 3 && toks.slice(-3).join("") === "llc") toks.splice(-3);
+    else if (toks.length && SUFFIX.has(toks[toks.length - 1])) toks.pop();
+    else break;
+  }
+  return toks.join(" ");
+}
+function dntMatch(company, names) {
+  const ck = " " + companyKey(company) + " ";
+  for (const n of names || []) { const nk = companyKey(n); if (nk && ck.includes(" " + nk + " ")) return n; }
+  return null;
+}
+// The box shows plain names when nothing else is set, so adding a line keeps working
+function dntText(list) {
+  const simple = list.every((e) => !(e.aliases || []).length && (e.reason || "Non-solicitation obligation") === "Non-solicitation obligation" && !e.lookback_months);
+  if (simple) return list.map((e) => e.name).join("\n");
+  return typeof jsyaml === "undefined" ? null : jsyaml.dump({ employers: list }, { lineWidth: 100 });
+}
 function governanceView() {
-  const dntYaml = typeof jsyaml === "undefined" ? "" : jsyaml.dump({ employers: app.dnt.employers || [] }, { lineWidth: 100 });
+  const dntYaml = dntText(app.dnt.employers || []), dntLocked = dntYaml === null;
   return `<p class="label">Governance</p><h1>Controls and audit</h1>
   <p class="lede">Who can see what, the do-not-target list, retention and the audit log.</p>
   <div class="grid">${HOST === "github" ? `<section class="panel"><h3>Where data lives</h3>
@@ -1433,8 +1563,8 @@ function governanceView() {
       <thead><tr><th>Company</th><th>Also known as</th><th>Reason</th><th class="num">Flag if they left within</th></tr></thead><tbody>
       ${(app.dnt.employers || []).map((e) => `<tr><td>${esc(e.name)}</td><td>${esc((e.aliases || []).join(", "))}</td><td>${esc(e.reason || "")}</td><td class="num">${e.lookback_months ? esc(e.lookback_months) + " months" : ""}</td></tr>`).join("") ||
         `<tr><td colspan="4" class="muted">No companies yet, so nobody is excluded.</td></tr>`}</tbody></table></div>
-    <div class="field"><label for="dnt_yaml">Edit the list: one company per line, or YAML</label><textarea id="dnt_yaml" class="code" style="min-height:200px" ${app.canWrite === false ? "readonly" : ""}>${esc(dntYaml)}</textarea>
-    <p class="hint">Type one company name per line, or YAML entries with name, aliases, reason and lookback_months (people who left within that many months are flagged, not excluded). ${app.canWrite === false ? "You have view-only access, so you cannot change this list." : ""}</p></div>
+    <div class="field"><label for="dnt_yaml">Edit the list: one company per line, or YAML</label><textarea id="dnt_yaml" class="code" style="min-height:200px" ${app.canWrite === false || dntLocked ? "readonly" : ""}>${esc(dntYaml || "")}</textarea>
+    <p class="hint">Type one company name per line, or YAML entries with name, aliases, reason and lookback_months (people who left within that many months are flagged, not excluded). Matching ignores capitals, punctuation and endings such as Inc., LLC and Corp., and a name matches any employer that contains it as whole words. ${dntLocked ? "The list editor did not load; reload the page before changing the list. " : ""}${app.canWrite === false ? "You have view-only access, so you cannot change this list." : ""}</p></div>
     ${app.canWrite !== false ? `<button class="btn" data-act="saveDnt">Save list</button> <span class="caption" id="dnt_status" role="status"></span>` : ""}</section></div>
   <h2>Retention</h2><p>Delete searches you no longer need, including their candidate records. ${HOST === "github"
     ? `This browser holds about ${STORAGE_CANDIDATES.toLocaleString("en-US")} candidates across all searches; ${app.searches.reduce((a, s) => a + (s.stats?.kept || 0) + (s.stats?.excluded || 0), 0).toLocaleString("en-US")} are stored now. Export slates you want to keep, then delete them.`
@@ -1609,7 +1739,7 @@ function helpView() {
     <li>Have the hiring manager review it, type their name under Hiring manager approval, and select <b>Approve rubric</b>.</li>
   </ol>
   <p class="caption">Approved versions are locked. Editing an approved rubric saves a new version that needs its own approval. Requirements are must-haves; desirements are nice-to-haves. Weights work best when they add up to 100.</p>
-  <p class="caption">Keywords can carry their own score, for example <code>keywords: {TS/SCI: 4, Top Secret: 3, Secret: 2}</code>. An item scored only by a plain keyword list shows FOUND when one of its keywords is in the profile, and counts as full credit for that item.</p>
+  <p class="caption">Keywords can carry their own score, for example <code>keywords: {TS/SCI: 4, Top Secret: 3, Secret clearance: 2}</code>. An item scored only by a plain keyword list shows FOUND when one of its keywords is in the profile, and counts as full credit for that item. Rubrics approved before beta 1.2.4 keep the scoring they were approved with; a new version uses these rules.</p>
 
   <h2>2. Find candidates in licensed tools</h2>
   <ol>
@@ -1751,14 +1881,30 @@ document.addEventListener("click", async (ev) => {
     const u = app.flash && app.flash.undo; if (!u) return;
     t.disabled = true;
     try {
+      // Only undo our own decision: if someone changed it since, leave theirs alone
+      const doc = await app.db.doc(`searches/${u.sid}/candidates/${u.cid}`).get();
+      const cur = doc.exists ? doc.data().review : null;
+      if (!cur || cur.at !== u.saved.at || cur.decision !== u.saved.decision) {
+        app.flash = { kind: "Not undone", text: `The decision for ${u.name} changed after yours, so Undo left it as it is.` }; return render();
+      }
       // Put back exactly what was there before the decision (nothing, or the earlier decision)
       await app.db.doc(`searches/${u.sid}/candidates/${u.cid}`).update({ review: u.prev });
-      const approved = [...app.cands.values()].filter((c) => !c.excluded && (c.id === u.cid ? u.prev && u.prev.decision === "approve" : c.review?.decision === "approve")).length;
-      await app.db.doc(`searches/${u.sid}`).update({ stats: { approved } });
-      await audit("candidate.review_undone", u.sid, { candidate: u.cid });
-      app.flashNext = { kind: "Undone", text: "The decision was removed. Choose again." };
+      await recountApproved(u.sid);
+      await audit("candidate.review_undone", u.sid, { candidate: u.cid, restored: u.prev ? `${u.prev.decision}: ${u.prev.reason}` : "to review" });
+      app.flashNext = u.prev ? { kind: "Undone", text: `${u.name} is back to the earlier decision: ${decisionText(u.prev)}.` }
+        : { kind: "Undone", text: `The decision for ${u.name} was removed. Choose again.` };
       location.hash = `#cand-${u.sid}-${u.cid}`;
     } catch (e) { say("Review", "The undo was not saved (" + (e.code || "error") + ")."); }
+    return;
+  }
+  if (act === "clearReview") {
+    t.disabled = true;
+    try {
+      await app.db.doc(`searches/${t.dataset.sid}/candidates/${t.dataset.cid}`).update({ review: null });
+      await recountApproved(t.dataset.sid);
+      await audit("candidate.review_cleared", t.dataset.sid, { candidate: t.dataset.cid });
+      setStatus("rv_status", "Decision cleared. This candidate is back to review.");
+    } catch (e) { t.disabled = false; say("Review", "The decision was not cleared (" + (e.code || "error") + ")."); }
     return;
   }
   if (act === "export") return exportCsv(t.dataset.sid);
@@ -1816,6 +1962,7 @@ document.addEventListener("click", async (ev) => {
   if (act === "approve") {
     const who = document.getElementById("approver").value.trim();
     if (!who) return setStatus("ap_status", "Enter the approver's name.");
+    if (who.toLowerCase() === DEMO_APPROVER.toLowerCase()) return setStatus("ap_status", `"${DEMO_APPROVER}" is reserved for the sample. Enter the hiring manager's name.`);
     try { await app.db.doc(`rubrics/${t.dataset.id}`).update({ status: "approved", approvedBy: who.slice(0, 120), approvedById: app.me?.id || null, approvedAt: nowIso() });
       const row = app.rubrics.find((x) => x.id === t.dataset.id); await audit("rubric.approved", null, { rubric: row?.slug, version: row?.version, approver: who }); }
     catch (e) { setStatus("ap_status", "Not approved (" + (e.code || e.message) + ")."); } return;
@@ -1831,13 +1978,20 @@ document.addEventListener("click", async (ev) => {
   }
   if (act === "saveDnt") {
     try {
-      const text = document.getElementById("dnt_yaml").value, { employers, explicitEmpty } = parseDnt(text);
+      const box0 = document.getElementById("dnt_yaml");
+      if (box0.readOnly) return setStatus("dnt_status", "Nothing was saved: the list editor did not load. Reload the page.");
+      const parsed = parseDnt(box0.value);
+      if (parsed.error) return setStatus("dnt_status", "Nothing was saved. " + parsed.error);
+      const { employers, explicitEmpty } = parsed;
       if (!employers.length && !explicitEmpty)
         return setStatus("dnt_status", "Nothing was saved: no company names were found. Type one company per line, or use the YAML format in the hint.");
       await app.db.doc("config/dnt").set({ employers, updatedBy: app.me?.id || null, updatedAt: nowIso() }); await audit("dnt.updated", null, { entries: employers.length });
       const box = document.getElementById("dnt_yaml"); if (box) delete box.dataset.dirty; // show the list as stored
+      const shown = employers.slice(0, 5).map((e) => e.name).join("; ") + (employers.length > 5 ? `; and ${employers.length - 5} more` : "");
+      const oneWord = employers.filter((e) => !companyKey(e.name).includes(" ")).map((e) => e.name);
       setStatus("dnt_status", employers.length
-        ? `Saved ${employers.length} ${employers.length === 1 ? "company" : "companies"}: ${employers.map((e) => e.name).join(", ")}.`
+        ? `Saved ${employers.length} ${employers.length === 1 ? "company" : "companies"}: ${shown}.` +
+          (oneWord.length ? ` One-word names match every employer with that word: ${oneWord.slice(0, 3).join("; ")}${oneWord.length > 3 ? "; ..." : ""}.` : "")
         : "Saved. The list is empty, so no company is excluded.");
     } catch (e) { setStatus("dnt_status", "Not saved: " + (e.message || e.code)); } return;
   }

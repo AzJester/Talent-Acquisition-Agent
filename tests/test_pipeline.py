@@ -154,6 +154,7 @@ def _keyword_rubric():
     return rubric_from_yaml("""
 id: program_analyst
 title: Program Analyst
+scoring: 2
 criteria:
   - id: budgeting
     name: Budget and cost analysis
@@ -217,3 +218,56 @@ def test_team_size_phrasings(rubric, signals):
              "Leads 120 engineers across three programs.": 4}
     for text, want in cases.items():
         assert heuristic_card(_profile(text, title="Director"), rubric, Matcher(signals)).get("large_org_leadership").score == want, text
+
+
+def test_rubrics_without_scoring_keep_the_old_rules(signals):
+    """A rubric approved before beta 1.2.4 has no scoring line; its scores must not change."""
+    old = rubric_from_yaml("""
+id: old
+title: Old
+criteria:
+  - {id: clearance, name: Clearance, type: desirement, weight: 10, keywords: [TS/SCI, Secret clearance]}
+  - {id: org, name: Org, type: requirement, weight: 10, heuristic: team_size}
+""")
+    assert old.scoring == 1
+    card = heuristic_card(_profile("Active Secret clearance. VP, Software | 200+ engineers"), old, Matcher(signals))
+    assert card.get("clearance").score == 2 and card.get("clearance").basis is None
+    assert card.get("org").score is None  # the 200+ phrasing arrived with rules 2
+
+
+def test_lapsed_or_eligible_clearances_are_capped(rubric, signals):
+    cases = {"Inactive TS/SCI (expired 2017).": 1, "Formerly held TS/SCI; no current clearance.": 1,
+             "TS/SCI eligible; no current clearance.": 1, "Active Top Secret (SCI eligible).": 3,
+             "Active TS/SCI with CI poly; previously held Secret.": 4, "Clearance not active: TS/SCI.": 1}
+    for text, want in cases.items():
+        assert heuristic_card(_profile(text), rubric, Matcher(signals)).get("active_clearance").score == want, text
+
+
+def test_team_size_ignores_audiences_hires_and_company_size(rubric, signals):
+    for text in ["Supported 200+ engineers with laptop provisioning.", "Technical recruiter who hired 150+ engineers.",
+                 "Trained 500+ engineers on Kubernetes.", "Our platform is used by 3,000+ developers.",
+                 "Backend engineer at a defense prime with 50,000+ employees.", "Gave heads-up briefings to 900 staff.",
+                 "Head of Developer Relations for a community of 10,000 developers.", "Mentored 25+ developers.",
+                 "Program Manager at Lockheed Martin (110,000 employees)."]:
+        assert heuristic_card(_profile(text, title="Engineer"), rubric, Matcher(signals)).get("large_org_leadership").score is None, text
+
+
+def test_keyword_input_is_strict():
+    for bad in ["keywords: TS/SCI", "keywords: [{TS/SCI: 4}]", "keywords: {TS/SCI: true}", "keywords: {TS/SCI: 2.5}"]:
+        with pytest.raises(ValueError):
+            rubric_from_yaml(f"id: r\ntitle: R\ncriteria:\n  - {{id: c, name: C, type: requirement, weight: 10, {bad}}}\n")
+
+
+def test_a_keyword_removed_from_the_list_loses_its_score():
+    r = rubric_from_yaml("""
+id: r
+title: R
+criteria:
+  - id: c
+    name: C
+    type: requirement
+    weight: 10
+    keywords: [TS/SCI]
+    keyword_scores: {TS/SCI: 4, Secret: 2}
+""")
+    assert r.criteria[0].keywords == ["TS/SCI"] and r.criteria[0].keyword_scores == {"TS/SCI": 4}

@@ -9,24 +9,31 @@ import re
 
 from taa.models import CriterionScore, Profile, Rubric, ScoreCard
 from taa.pipeline.mask import MaskedProfile, masked_view
-from taa.signals import STRENGTH_RANK, Matcher, find_keyword, sentence_around
+from taa.signals import STRENGTH_RANK, Matcher, _word_re, find_keyword, sentence_around
 
-_NUM = r"(\d{1,3}(?:,\d{3})*|\d+)"
-_TEAM_PATTERNS = [
-    re.compile(r"\b(?:led|lead|leads|leading|head|heads|headed|heading|manag(?:e|ed|es|ing)|built|grew|scaled|oversaw|oversee|oversees|direct(?:ed|s|ing)?|ran|run|runs)\b"
-               r"[^.\n;]{0,60}?\b" + _NUM + r"\+?\s*(?:-\s*person|person|people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\b", re.I),
+_NUM = r"([0-9]{1,3}(?:,[0-9]{3})*|[0-9]+)"
+_PEOPLE = r"(?:-\s*person|person|people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)"
+_REPORTS = r"(?:people|engineers|developers|staff|software engineers|engineering staff|team members|FTEs?)"  # not "employees": company size
+_LEADER = r"\b(?:director|vp|vice\s+president|head\s+of|chief|cto)\b"
+_TEAM_V1 = [
+    re.compile(r"\b(?:led|lead|leading|manag(?:e|ed|es|ing)|built|grew|scaled|oversaw|oversee|oversees|direct(?:ed|s|ing)?|ran|run|runs)\b"
+               r"[^.\n;]{0,60}?\b" + _NUM + r"\+?\s*" + _PEOPLE + r"\b", re.I),
     re.compile(r"\b(?:team|org|organization|organisation|department|group|workforce) of\s+" + _NUM + r"\+?", re.I),
     re.compile(r"\b" + _NUM + r"\+?\s*(?:-\s*person|person)\s+(?:team|org|organization|engineering)", re.I),
-    # a head count in parentheses, "(65 engineers)", or with a plus sign, "200+ engineers"
-    re.compile(r"\(\s*" + _NUM + r"\+?\s*(?:people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\s*\)", re.I),
-    re.compile(r"\b" + _NUM + r"\+\s*(?:people|engineers|developers|staff|employees|software engineers|engineering staff|team members|FTEs?)\b", re.I),
+]
+# Scoring rules 2 add phrasings, each tied to leadership so audiences, hires and company size do not count:
+# "Leads 120 engineers", "Director of DevSecOps over 6 teams (65 engineers)", "VP, Software | 200+ engineers"
+_TEAM_V2 = _TEAM_V1 + [
+    re.compile(r"\b(?:leads|heads)\s+(?:(?:a|an|the|over|about|nearly|approximately|more\s+than|up\s+to)\s+)?" + _NUM + r"\+?\s*" + _PEOPLE + r"\b", re.I),
+    re.compile(r"(?:" + _LEADER + r"|\b(?:manager|lead|led|leads|manages|managed|oversees|oversaw|directs|directed)\b)[^.\n;()]{0,80}?\(\s*" + _NUM + r"\+?\s*" + _REPORTS + r"\s*\)", re.I),
+    re.compile(_LEADER + r"[^.\n;]{0,80}?\b" + _NUM + r"\+\s*" + _REPORTS + r"\b", re.I),
 ]
 
 
-def team_size(mp: MaskedProfile) -> tuple[int, str] | None:
+def team_size(mp: MaskedProfile, rules: int = 2) -> tuple[int, str] | None:
     best: tuple[int, str] | None = None
     for section in mp.sections():
-        for rx in _TEAM_PATTERNS:
+        for rx in (_TEAM_V2 if rules >= 2 else _TEAM_V1):
             for m in rx.finditer(section):
                 n = int(m.group(1).replace(",", ""))
                 if best is None or n > best[0]:
@@ -46,8 +53,20 @@ def _team_score(n: int) -> int:
     return 0
 
 
+def _capped(sentence: str, cap) -> bool:
+    """True when the sentence has a "when" term (inactive, expired...) and no "unless" term (active) that is
+    not itself negated ("not active", "no longer active")."""
+    if not any(_word_re(t).search(sentence) for t in cap.when):
+        return False
+    for t in cap.unless:
+        if re.search(r"(?<!not )(?<!no longer )" + _word_re(t).pattern, sentence, re.I):
+            return False
+    return True
+
+
 def heuristic_card(profile: Profile, rubric: Rubric, matcher: Matcher, mp: MaskedProfile | None = None) -> ScoreCard:
     mp = mp or masked_view(profile)
+    v2 = rubric.scoring >= 2
     all_caps = sorted({c for crit in rubric.criteria for c in crit.signals})
     matches = matcher.match(mp, all_caps) if all_caps else []
     scores: list[CriterionScore] = []
@@ -58,17 +77,22 @@ def heuristic_card(profile: Profile, rubric: Rubric, matcher: Matcher, mp: Maske
                 hits.append((STRENGTH_RANK[m.strength], m.quote, f"{m.capability} ({m.strength})", "signal"))
         # Keywords with their own score use it. A plain keyword on an item with no signals, no team-size rule and
         # no scored keywords is a found/not-found check worth full credit; elsewhere it supports at 2.
-        found_only = not crit.signals and not crit.heuristic and not crit.keyword_scores
+        # (Scoring rules 1, for rubrics approved before beta 1.2.4: every plain keyword scores 2.)
+        found_only = v2 and not crit.signals and not crit.heuristic and not crit.keyword_scores
         for kw in crit.keywords:
             q = find_keyword(mp, kw)
             if not q:
                 continue
             if kw in crit.keyword_scores:
-                hits.append((crit.keyword_scores[kw], q, f"keyword '{kw}' ({crit.keyword_scores[kw]} of 4)", "keyword"))
+                score, why = crit.keyword_scores[kw], f"keyword '{kw}' ({crit.keyword_scores[kw]} of 4)"
             else:
-                hits.append((4 if found_only else 2, q, f"keyword '{kw}'", "keyword"))
+                score, why = (4 if found_only else 2), f"keyword '{kw}'"
+            cap = crit.keyword_cap if v2 else None
+            if cap and score > cap.score and _capped(q, cap):
+                score, why = cap.score, why + f", capped at {cap.score}"
+            hits.append((score, q, why, "keyword"))
         if crit.heuristic == "team_size":
-            ts = team_size(mp)
+            ts = team_size(mp, rubric.scoring)
             if ts:
                 hits.append((_team_score(ts[0]), ts[1], f"team size {ts[0]}", "team"))
         if not hits:

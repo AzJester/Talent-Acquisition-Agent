@@ -66,6 +66,12 @@ class Profile(BaseModel):
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
+class KeywordCap(BaseModel):
+    score: int = Field(ge=0, le=4)
+    when: list[str]
+    unless: list[str] = Field(default_factory=list)
+
+
 class Criterion(BaseModel):
     id: str
     name: str
@@ -77,33 +83,39 @@ class Criterion(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     # Optional score (0 to 4) per keyword, e.g. {"TS/SCI": 4, "Top Secret": 3}; unscored keywords use the default rule
     keyword_scores: dict[str, int] = Field(default_factory=dict)
+    # Optional cap: a keyword hit whose sentence has a "when" term (inactive, expired...) and no "unless" term scores at most "score"
+    keyword_cap: KeywordCap | None = None
     heuristic: Literal["team_size"] | None = None
 
     @model_validator(mode="before")
     @classmethod
     def _keyword_mapping(cls, data):
-        """Accept keywords as a list, or as a mapping of keyword to score; store a list plus keyword_scores."""
+        """Accept keywords as a list, or as a mapping of keyword to score; store a list plus keyword_scores.
+        With a list, the list is authoritative: scores for keywords no longer in it are dropped."""
         if not isinstance(data, dict):
             return data
-        data = dict(data)
         kws = data.get("keywords")
-        scores = dict(data.get("keyword_scores") or {})
+        if kws is not None and not isinstance(kws, (list, dict)):
+            return data  # pydantic refuses it as "should be a valid list"
+        data = dict(data)
+        scores = data.get("keyword_scores") or {}
+        if not isinstance(scores, dict):
+            return data
         if isinstance(kws, dict):
-            scores = {**{str(k): v for k, v in kws.items()}, **scores}
-            kws = [str(k) for k in kws]
-        kws = [str(k) for k in (kws or [])]
-        for k in scores:
-            if str(k) not in kws:
-                kws.append(str(k))
-        data["keywords"] = kws
-        data["keyword_scores"] = {str(k): v for k, v in scores.items()}
+            merged = {str(k): v for k, v in kws.items()}
+            merged.update({str(k): v for k, v in scores.items()})
+            data["keywords"] = list(merged)
+            data["keyword_scores"] = merged
+        else:
+            kws = kws or []
+            data["keyword_scores"] = {str(k): v for k, v in scores.items() if str(k) in [str(x) for x in kws]}
         return data
 
-    @field_validator("keyword_scores")
+    @field_validator("keyword_scores", mode="before")
     @classmethod
-    def _check_scores(cls, v: dict[str, int]) -> dict[str, int]:
-        for k, s in v.items():
-            if not 0 <= s <= 4:
+    def _check_scores(cls, v):
+        for k, s in (v or {}).items():
+            if isinstance(s, bool) or not isinstance(s, int) or not 0 <= s <= 4:
                 raise ValueError(f"the score for keyword '{k}' must be a whole number from 0 to 4")
         return v
 
@@ -134,6 +146,9 @@ class Rubric(BaseModel):
     target_companies: list[str] = Field(default_factory=list)
     gates: Gates = Field(default_factory=Gates)
     criteria: list[Criterion]
+    # Scoring rules version. 1: rules before beta 1.2.4 (kept for rubrics approved then, so an approved version
+    # scores the same forever). 2: FOUND for keyword-only items, keyword caps, stricter team-size phrasing.
+    scoring: int = 1
 
     @model_validator(mode="after")
     def _unique_ids(self) -> "Rubric":

@@ -45,7 +45,8 @@ def apply_verification(card: ScoreCard, source_text: str) -> ScoreCard:
             if removed:
                 rationale = (rationale + " " if rationale else "") + "Evidence could not be verified in the profile; marked unknown."
         out.append(s.model_copy(update={"score": score, "evidence": kept, "rationale": rationale,
-                                        "removed_quotes": s.removed_quotes + removed}))
+                                        "removed_quotes": s.removed_quotes + removed,
+                                        "basis": s.basis if score is not None else None}))
     return card.model_copy(update={"scores": out})
 
 
