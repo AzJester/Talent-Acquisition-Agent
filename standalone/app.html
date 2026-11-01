@@ -161,9 +161,17 @@ try { const t = localStorage.getItem("taa:theme"); if (t === "light" || t === "d
   </div>
 </header>
 <main id="view"><p class="muted">Loading</p></main>
+<script>
+window.setTimeout(function () {
+  if (window.__taaStarted) return;
+  var v = document.getElementById("view");
+  if (v) v.innerHTML = '<div class="notice"><b>App did not start</b>This browser could not run the app. Use a current version of Chrome, Edge, Firefox or Safari. If you are on a work network and this keeps happening, tell the app owner.</div>';
+}, 8000);
+</script>
 
 <script>
 "use strict";
+window.__taaStarted = true;
 const SIGNALS = __SIGNALS_JSON__;
 const TEMPLATES = __TEMPLATES_JSON__;
 // Fictional candidates in every column the importer recognizes (built from data/samples by standalone/build.py)
@@ -525,7 +533,9 @@ async function loadFile(file) {
   const label = file.name.replace(/\.(csv|json|jsonl)$/i, "").slice(0, 60) || "upload";
   if (lower.endsWith(".csv")) return loadCsv(text.replace(/^﻿/, ""), label);
   if (lower.endsWith(".json") || lower.endsWith(".jsonl")) return loadJson(text, label);
-  throw new Error(`${file.name}: use .csv, .json or .jsonl`);
+  throw new Error(/\.xlsx?$/i.test(file.name)
+    ? `${file.name} is an Excel file. In Excel choose File, Save As, "CSV UTF-8", then upload the .csv file.`
+    : `${file.name} is not a file this app reads. Use .csv, .json or .jsonl.`);
 }
 
 // ------------------------------------------------------------------ rubric validation and query planner
@@ -736,6 +746,19 @@ function localSample() {
   return s;
 }
 
+// ------------------------------------------------------------------ visible errors
+// Anything unexpected shows as a notice at the top of the page, so a stuck step is never silent
+let inFault = false;
+function showFault(msg) {
+  if (inFault || !msg) return;
+  inFault = true;
+  try { app.flash = { kind: "Error", text: `${msg}. Reload the page and try again. If it happens again, send this message to the app owner.` }; render(); }
+  catch (e) { /* the notice is best effort */ }
+  finally { inFault = false; }
+}
+window.addEventListener("error", (e) => { if (e && e.message && !/ResizeObserver/.test(e.message)) showFault(e.message); });
+window.addEventListener("unhandledrejection", (e) => { const r = e && e.reason; showFault((r && (r.message || r.code)) || String(r)); });
+
 // ------------------------------------------------------------------ app state and platform
 const app = { db: null, user: null, sample: null, downloads: null, me: null, canWrite: null, isAdmin: false, ready: false,
   rubrics: [], searches: [], dnt: { employers: [] }, cands: new Map(), candSub: null, candSearch: null, scoring: null, flash: null };
@@ -839,7 +862,10 @@ function searchesView() {
   h += viewOnlyNotice();
   if (HOST === "github") h += `<div class="notice quiet"><b>GitHub version</b>Searches, reviews and settings are saved in this browser only. Nothing you upload goes to GitHub. Share results with Export CSV.${app.sample ? "" : ` Claude scoring is off until you add an Anthropic API key under <a href="#governance">Governance</a>.`}</div>`;
   else if (!app.sample) h += `<div class="notice quiet"><b>Heuristic mode</b>Claude scoring is unavailable in this view, so scores come from the signal dictionary only.</div>`;
-  if (!app.searches.length) return h + `<div class="panel"><h3>No searches yet</h3><p class="muted">Approve a rubric, export candidates from LinkedIn Recruiter, ClearanceJobs or the ATS as CSV, then start a search.</p></div>`;
+  if (!app.searches.length) return h + `<div class="panel"><h3>No searches yet</h3>
+    <p>New here? Load ten fictional candidates and the Software Factory Lead rubric in one click, and see a finished slate.</p>
+    <p><button class="btn btn-primary" data-act="demo">Try it with sample data</button></p>
+    <p class="caption">For a real search: approve a rubric under Rubrics, export candidates from LinkedIn Recruiter, ClearanceJobs or the ATS as CSV, then select New search.</p></div>`;
   h += `<div class="table-wrap"><table><thead><tr><th>Search</th><th>Rubric</th><th>Status</th><th class="num">Candidates</th><th class="num">Excluded</th><th class="num">Approved</th><th>Scorer</th><th>Created</th></tr></thead><tbody>`;
   for (const s of app.searches) {
     const st = s.stats || {};
@@ -878,12 +904,21 @@ async function createSearch(form) {
   const r = app.rubrics.find((x) => x.id === document.getElementById("ns_rubric").value);
   const files = [...document.getElementById("ns_files").files];
   if (!r || r.status !== "approved") return (status.textContent = "Pick an approved rubric.");
-  if (!files.length) return (status.textContent = "Add at least one candidate file.");
+  if (!files.length) return (status.textContent = "Choose at least one candidate file first, using the Candidate files button.");
   const btn = form.querySelector("button[type=submit]"); btn.disabled = true;
   try {
     status.textContent = "Reading files";
     const profiles = [], inputs = [];
     for (const f of files) { const ps = await loadFile(f); profiles.push(...ps); inputs.push({ name: f.name, count: ps.length }); }
+    if (!profiles.length) throw new Error("No candidates were found in the file. Check that the first row holds column names.");
+    const sid = await saveSearch(r, document.getElementById("ns_title").value.trim() || r.title, profiles, inputs, (m) => (status.textContent = m));
+    location.hash = "#search-" + sid;
+  } catch (e) {
+    const msg = e && e.code === "quota_exceeded" ? "Storage is full. Delete old searches under Governance, then try again." : "Could not create the search: " + (e.message || e.code || e);
+    status.textContent = msg; say("New search", msg);
+  } finally { btn.disabled = false; }
+}
+async function saveSearch(r, title, profiles, inputs, progress) {
     const rubric = r.rubric;
     const resolved = resolveProfiles(profiles);
     const { kept, excluded } = applyFilters(resolved, rubric, app.dnt);
@@ -895,19 +930,35 @@ async function createSearch(form) {
       cands.push({ id: idFor(key), key, profile: p, card, ...totals(card, rubric), flags: [...flags, ...recruiterFlags(p)], excluded: false, review: null, outreach: null });
     }
     for (const e of excluded) cands.push({ id: idFor(e.key), key: e.key, profile: e.profile, excluded: true, exclusionReason: e.reason, total: 0, coverage: 0, reqUnknown: 0 });
-    const search = { title: document.getElementById("ns_title").value.trim() || r.title, rubricId: r.id, rubricTitle: r.title, rubricVersion: r.version,
+    const search = { title, rubricId: r.id, rubricTitle: r.title, rubricVersion: r.version,
       rubric, approvedBy: r.approvedBy || "", createdBy: app.me?.id || null, createdAt: nowIso(), status: "saving", inputs,
       stats: { recordsIn: profiles.length, candidates: resolved.size, kept: kept.size, excluded: excluded.length, approved: 0, scorer: "heuristic" } };
     await app.db.doc(`searches/${sid}`).set(search);
     let done = 0; const queue = [...cands];
-    const worker = async () => { while (queue.length) { const c = queue.shift(); await app.db.doc(`searches/${sid}/candidates/${c.id}`).set(c); done++; status.textContent = `Saving candidates ${done} of ${cands.length}`; } };
+    const worker = async () => { while (queue.length) { const c = queue.shift(); await app.db.doc(`searches/${sid}/candidates/${c.id}`).set(c); done++; progress(`Saving candidates ${done} of ${cands.length}`); } };
     await Promise.all([worker(), worker(), worker()]);
     await app.db.doc(`searches/${sid}`).update({ status: "complete" });
     await audit("search.created", sid, { rubric: r.id, version: r.version, approvedBy: r.approvedBy, files: inputs, kept: kept.size, excluded: excluded.length });
+    return sid;
+}
+
+// One click: an approved copy of the template rubric plus a search over the sample file
+async function tryDemo(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    let r = app.rubrics.find((x) => x.status === "approved" && x.slug === TEMPLATES[0].id);
+    if (!r) {
+      const id = await saveRubricDraft(clone(TEMPLATES[0]), "template");
+      await app.db.doc(`rubrics/${id}`).update({ status: "approved", approvedBy: "Sample data demo", approvedById: app.me?.id || null, approvedAt: nowIso() });
+      r = { id, ...(await app.db.doc(`rubrics/${id}`).get()).data() };
+      await audit("rubric.approved", null, { rubric: r.slug, version: r.version, approver: "Sample data demo" });
+    }
+    const profiles = loadCsv(SAMPLE_CSV, "sample_candidates");
+    const sid = await saveSearch(r, "Sample data demo", profiles, [{ name: "sample_candidates.csv", count: profiles.length }], () => {});
     location.hash = "#search-" + sid;
   } catch (e) {
-    status.textContent = e && e.code === "quota_exceeded" ? "Storage is full. Delete old searches under Governance, then try again." : "Could not create the search: " + (e.message || e.code || e);
-  } finally { btn.disabled = false; }
+    say("Sample data", "The demo could not be set up: " + (e.message || e.code || e));
+  } finally { if (btn) btn.disabled = false; }
 }
 
 // ---- search detail
@@ -1153,23 +1204,24 @@ function rubricView(id) {
   let h = `<p class="label"><a href="#rubrics">Rubrics</a> / ${esc(row.slug)} / v${esc(row.version)}</p>
   <div class="head"><div><h1>${esc(row.title)}</h1><p><span class="tag ${row.status === "approved" ? "solid" : ""}">${esc(row.status)}</span>
     ${row.approvedBy ? `<span class="caption"> Approved by ${esc(row.approvedBy)}, ${esc(fmtDate(row.approvedAt))}</span>` : ""}</p></div>
-    ${row.status === "approved" ? `<a class="btn btn-primary" href="#new-search">Start a search</a>` : ""}</div>
+    ${row.status === "approved" ? `<a class="btn btn-primary" href="#new-search">Start a search</a>` : `<button class="btn btn-primary" data-act="toApprove">Approve</button>`}</div>
   ${r.summary ? `<p class="lede">${esc(r.summary)}</p>` : ""}
   <div class="table-wrap"><table><thead><tr><th>Criterion</th><th>Label</th><th>Type</th><th class="num">Weight</th><th>Guidance</th><th>Signals</th></tr></thead><tbody>
   ${r.criteria.map((c) => `<tr><td>${esc(c.name)}</td><td class="mono">${esc(critLabel(c))}</td><td>${esc(c.type)}</td><td class="num">${esc(c.weight)}</td><td>${esc(c.guidance)}</td><td class="mono">${esc(c.signals.join(", "))}${c.heuristic ? " / " + esc(c.heuristic) : ""}</td></tr>`).join("")}
   </tbody><tfoot><tr><td class="note" colspan="6">Total weight ${r.criteria.reduce((a, c) => a + c.weight, 0)}. Location gate: ${esc(r.gates.locations.join(", ") || "none")}.</td></tr></tfoot></table></div>
+  ${row.status !== "approved" ? `<div class="panel" style="margin:4px 0 24px"><h3>Hiring manager approval</h3><p class="caption">Approval locks this version so searches can use it. Searches record who approved the rubric they ran against.</p>
+    <div class="row"><input type="text" id="approver" placeholder="Approver name" aria-label="Approver name" style="flex:1;min-width:200px;width:auto">
+    <button class="btn btn-primary" data-act="approve" data-id="${esc(id)}">Approve rubric</button></div><p class="hint" id="ap_status"></p></div>` : ""}
   <div class="grid"><section><h3>Edit</h3>${row.status === "approved" ? `<p class="caption">This version is approved and locked. Saving creates a new draft version that needs its own approval.</p>` : ""}
     <div class="field"><label for="yaml_edit">Rubric YAML</label><textarea id="yaml_edit" class="code">${esc(row.yaml)}</textarea></div>
     <button class="btn" data-act="saveRubric" data-id="${esc(id)}">${row.status === "approved" ? "Save as new version" : "Save"}</button> <span class="caption" id="re_status"></span></section>
-  <section>${row.status !== "approved" ? `<div class="panel" style="margin-bottom:20px"><h3>Hiring manager approval</h3><p class="caption">Approval locks this version. Searches record who approved the rubric they ran against.</p>
-    <div class="field"><label for="approver">Approver name</label><input type="text" id="approver"></div>
-    <button class="btn btn-primary" data-act="approve" data-id="${esc(id)}">Approve rubric</button> <span class="caption" id="ap_status"></span></div>` : ""}${planHtml(r)}</section></div>`;
+  <section>${planHtml(r)}</section></div>`;
   return h;
 }
 
 // ---- governance
 function governanceView() {
-  const dntYaml = jsyaml.dump({ employers: app.dnt.employers || [] }, { lineWidth: 100 });
+  const dntYaml = typeof jsyaml === "undefined" ? "" : jsyaml.dump({ employers: app.dnt.employers || [] }, { lineWidth: 100 });
   return `<p class="label">Governance</p><h1>Controls and audit</h1>
   <p class="lede">Who can see what, the do-not-target list, retention and the audit log.</p>
   <div class="grid">${HOST === "github" ? `<section class="panel"><h3>Where data lives</h3>
@@ -1338,6 +1390,10 @@ function helpView() {
   <p class="lede">The app ranks candidates against a hiring rubric. You bring candidate lists exported from licensed tools; the app scores each person on each criterion, quotes the profile behind every score, and gives you a ranked slate to review.</p>
   <div class="notice quiet"><b>Ground rules</b>Use only data from licensed tools you export yourself, or Astrion's own records. Never scrape LinkedIn, Indeed or other sites. You decide who to contact; the app never contacts anyone.</div>
 
+  <h2>Quick start</h2>
+  <p>Select <b>Try it with sample data</b>. The app approves the Software Factory Lead rubric, loads ten fictional candidates and opens the ranked slate. Then open a candidate to see the scores and evidence, and come back to the steps below for your own searches.</p>
+  <p><button class="btn btn-primary" data-act="demo">Try it with sample data</button></p>
+
   <h2>Before you start</h2>
   <ol>${setup}
     <li><b>Pick light or dark mode</b> with the button at the top right. The app remembers your choice.</li>
@@ -1431,7 +1487,9 @@ function helpView() {
     <tr><td>A colleague sees an empty app</td><td>Share the app with them from the Share menu, and check they are signed in to claude.ai</td></tr>`}
     <tr><td>"Usage limit or rate limit was reached"</td><td>Wait a while, then select Score with Claude again. Finished scores are kept</td></tr>
     <tr><td>Approve a rubric first</td><td>Searches need an approved rubric. Approve one under Rubrics</td></tr>
-    <tr><td>A file will not upload</td><td>Use .csv, .json or .jsonl. Export CSV with a header row</td></tr>
+    <tr><td>A file will not upload</td><td>Use .csv, .json or .jsonl, with column names in the first row. From Excel, choose File, Save As, "CSV UTF-8"</td></tr>
+    <tr><td>Create search does nothing</td><td>Choose a file with the Candidate files button first, then select Create search. Any problem shows in a message at the top of the page</td></tr>
+    <tr><td>The page stays on Loading, or says the app did not start</td><td>Use a current version of Chrome, Edge, Firefox or Safari. If it still fails, send the message on screen to the app owner</td></tr>
     <tr><td>A candidate is missing from the slate</td><td>Check Excluded before scoring on the search page, and whether two records were merged as one person</td></tr>
   </tbody></table></div>
   <p class="caption">The legal rules behind these steps are on the <a href="#legal">Legal</a> page.</p>
@@ -1483,6 +1541,8 @@ document.addEventListener("click", async (ev) => {
   const act = t.dataset.act;
   if (act === "dismiss") { app.flash = null; return render(); }
   if (act === "export") return exportCsv(t.dataset.sid);
+  if (act === "demo") return tryDemo(t);
+  if (act === "toApprove") { const el = document.getElementById("approver"); el.scrollIntoView({ block: "center" }); el.focus(); return; }
   if (act === "sampleCsv") {
     if (!app.downloads) return say("Sample CSV", "Downloads are not available in this view.");
     try { await app.downloads.save({ filename: "sample_candidates.csv", data: SAMPLE_CSV }); }
