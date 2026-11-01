@@ -1,4 +1,4 @@
-<title>Talent Acquisition Agent</title>
+<title>Talent Acquisition Agent Beta</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
@@ -46,6 +46,11 @@ button { font:inherit; }
 .links a { font:500 11px/1 var(--font-mono); letter-spacing:.18em; text-transform:uppercase; color:var(--ink); text-decoration:none; padding-bottom:4px; }
 .links a[aria-current="page"] { border-bottom:1px solid var(--ink); }
 .who { font:400 11px/1.4 var(--font-mono); letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+.brand .beta-tag { font:500 10px/1 var(--font-mono); letter-spacing:.16em; text-transform:uppercase; color:var(--ground); background:var(--ink); padding:3px 6px; }
+.beta-band { background:var(--raised); border-bottom:1px solid var(--hair); padding-block:8px;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); }
+.beta-band p { max-width:1240px; margin:0 auto; font-size:13px; line-height:1.45; }
+.beta-band b { font:500 11px/1 var(--font-mono); letter-spacing:.18em; text-transform:uppercase; margin-right:8px; }
 .nav-end { display:flex; flex-wrap:wrap; align-items:center; gap:12px 16px; }
 .theme-toggle { display:inline-flex; align-items:center; gap:8px; min-height:30px; padding:0 10px; cursor:pointer;
   font:500 11px/1 var(--font-mono); letter-spacing:.18em; text-transform:uppercase;
@@ -146,6 +151,7 @@ try { const t = localStorage.getItem("taa:theme"); if (t === "light" || t === "d
       __WORDMARK_LIGHT__
       __WORDMARK_DARK__
       <span>Talent Acquisition Agent</span>
+      <span class="beta-tag">Beta</span>
     </a>
     <nav class="links" aria-label="Main">
       <a href="#searches" data-nav="searches">Searches</a>
@@ -160,6 +166,7 @@ try { const t = localStorage.getItem("taa:theme"); if (t === "light" || t === "d
     </div>
   </div>
 </header>
+<div class="beta-band" role="note"><p><b>Beta</b>This is a beta version for testing. Features may change, and searches saved during the beta may need to be redone. Report problems to the app owner, including any message shown at the top of the page.</p></div>
 <main id="view"><p class="muted">Loading</p></main>
 <script>
 window.setTimeout(function () {
@@ -176,7 +183,7 @@ const SIGNALS = __SIGNALS_JSON__;
 const TEMPLATES = __TEMPLATES_JSON__;
 // Fictional candidates in every column the importer recognizes (built from data/samples by standalone/build.py)
 const SAMPLE_CSV = __SAMPLE_CSV__;
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0-beta";
 // "claude" when published as a claude.ai artifact; "github" for the GitHub Pages build (set by standalone/build.py)
 const HOST = window.TAA_HOST === "github" ? "github" : "claude";
 

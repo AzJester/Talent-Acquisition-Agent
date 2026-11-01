@@ -1,4 +1,6 @@
-# Talent Acquisition Agent
+# Talent Acquisition Agent (Beta)
+
+**Status: beta.** The app is in testing with Astrion recruiters. Features may change, and searches saved during the beta may need to be redone.
 
 AI-assisted sourcing and ranking tool for Astrion Talent Acquisition. It takes an approved hiring rubric and candidate records from licensed sources, scores every candidate on every criterion with quoted evidence, verifies each quote against the source, and gives recruiters a ranked slate to review. Recruiters make every contact decision; the tool never contacts anyone.
 
