@@ -6,7 +6,7 @@ AI-assisted sourcing and ranking tool for Astrion Talent Acquisition. It takes a
 
 **Open the app:** https://azjester.github.io/Talent-Acquisition-Agent/ (no sign-in needed; data stays in your browser; Claude scoring is optional with an Anthropic API key entered under Governance).
 
-**Walkthrough video:** https://claude.ai/artifact/P1jpqB5wo3iKajND7t7sZc (about 2 minutes 40 seconds, no sound; every step on the real screens). It is hosted on claude.ai and shared with everyone. The app's Help and Searches pages link to it.
+**Walkthrough video:** watch it at https://claude.ai/artifact/P1jpqB5wo3iKajND7t7sZc, or download the MP4 from the GitHub site: https://azjester.github.io/Talent-Acquisition-Agent/docs/Talent_Acquisition_Agent_Walkthrough.mp4 (2 minutes 42 seconds, 1080p, no sound, {SIZE} MB; the file is `docs/Talent_Acquisition_Agent_Walkthrough.mp4`). It shows every step on the real screens. The app's Help and Searches pages offer both.
 
 **Sample candidate file:** [data/samples/sample_candidates.csv](data/samples/sample_candidates.csv) (fictional people; also downloadable from the app's New search and Help pages).
 
