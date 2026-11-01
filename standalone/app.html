@@ -120,6 +120,10 @@ th { font:500 9pt/1.3 var(--font-mono); text-transform:uppercase; letter-spacing
 th, td { padding:6px 10px; border-bottom:1px solid var(--hair); }
 td { vertical-align:top; }
 td.num, th.num { text-align:right; font-family:var(--font-mono); white-space:nowrap; }
+th.wrap { white-space:normal; }
+/* The do-not-target list sits in a narrow card: three columns, aliases under the name, and long words may break so it never needs a sideways scroll */
+.dnt-table th, .dnt-table td { white-space:normal; overflow-wrap:anywhere; padding:6px 8px; }
+.dnt-table .aka { display:block; margin-top:2px; font-size:12px; color:var(--muted); }
 td.note { font-size:8pt; color:var(--muted); }
 
 .seg { display:inline-flex; gap:2px; vertical-align:middle; }
@@ -1645,10 +1649,10 @@ function governanceView() {
     <p>Open access. Anyone who can open this app can read its searches, candidates and reviews.</p>
     <p class="caption">Changing data (running searches, reviewing, editing lists) needs Contributor access or above. Astrion members of the owner's Claude organization get it through a shared link; claude.ai lets visitors from outside the organization read but never change data.</p></section>`}
   <section class="panel"><h3>Do-not-target list</h3><p class="caption">Owned by Contracts: non-solicitation terms from teaming agreements, subcontracts and NDAs. Candidates whose current employer matches are excluded before scoring.</p>
-    <div class="table-wrap"><table><caption class="caption" style="text-align:left;caption-side:top;padding-bottom:6px">On the list now: ${(app.dnt.employers || []).length} ${(app.dnt.employers || []).length === 1 ? "company" : "companies"}</caption>
-      <thead><tr><th>Company</th><th>Also known as</th><th>Reason</th><th class="num">Flag if they left within</th></tr></thead><tbody>
-      ${(app.dnt.employers || []).map((e) => `<tr><td>${esc(e.name)}</td><td>${esc((e.aliases || []).join(", "))}</td><td>${esc(e.reason || "")}</td><td class="num">${e.lookback_months ? esc(e.lookback_months) + " months" : ""}</td></tr>`).join("") ||
-        `<tr><td colspan="4" class="muted">No companies yet, so nobody is excluded.</td></tr>`}</tbody></table></div>
+    <div class="table-wrap"><table class="dnt-table"><caption class="caption" style="text-align:left;caption-side:top;padding-bottom:6px">On the list now: ${(app.dnt.employers || []).length} ${(app.dnt.employers || []).length === 1 ? "company" : "companies"}</caption>
+      <thead><tr><th>Company</th><th>Reason</th><th class="num">Flag if they left within</th></tr></thead><tbody>
+      ${(app.dnt.employers || []).map((e) => `<tr><td>${esc(e.name)}${(e.aliases || []).length ? `<span class="aka">Also: ${esc(e.aliases.join(", "))}</span>` : ""}</td><td>${esc(e.reason || "")}</td><td class="num">${e.lookback_months ? esc(e.lookback_months) + " months" : ""}</td></tr>`).join("") ||
+        `<tr><td colspan="3" class="muted">No companies yet, so nobody is excluded.</td></tr>`}</tbody></table></div>
     <div class="field"><label for="dnt_yaml">Edit the list: one company per line, or YAML</label><textarea id="dnt_yaml" class="code" style="min-height:200px" ${app.canWrite === false || dntLocked ? "readonly" : ""}>${esc(dntYaml || "")}</textarea>
     <p class="hint">Type one company name per line, or YAML entries with name, aliases, reason and lookback_months (people who left within that many months are flagged, not excluded). Matching ignores capitals, accents, punctuation, a leading "The" and endings such as Inc., LLC and Corp. A name matches an employer that contains it as whole words, or that has the same name once those endings are removed. ${dntLocked ? "The list editor did not load; reload the page before changing the list. " : ""}${app.canWrite === false ? "You have view-only access, so you cannot change this list." : ""}</p></div>
     ${app.canWrite !== false ? `<button class="btn" data-act="saveDnt">Save list</button> <span class="caption" id="dnt_status" role="status"></span>` : ""}</section></div>
